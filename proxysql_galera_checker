@@ -181,7 +181,9 @@ function debug() {
 function usage() {
   local path=$0
   cat << EOF
-Usage: ${path##*/} --write-hg=10 --read-hg=11 --config-file=/etc/proxysql-admin.cnf --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
+Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
+
+Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,2000,"${path##*/}/proxysql_galera_checker","--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug");
 
 Options:
   -w, --write-hg=<NUMBER>             Specify ProxySQL write hostgroup.
@@ -505,10 +507,10 @@ function combine_ip_port_into_address()
 #   None
 function upgrade_scheduler(){
   log $LINENO "**** Scheduler upgrade started ****"
-  if [[ -f /etc/proxysql-admin.cnf ]]; then
-    source /etc/proxysql-admin.cnf
+  if [[ -f $CONFIG_FILE ]]; then
+    source $CONFIG_FILE
   else
-    error $LINENO "Assert! proxysql-admin configuration file : /etc/proxysql-admin.cnf does not exist, Terminating!"
+    error $LINENO "Assert! proxysql-admin configuration file : ${CONFIG_FILE} does not exist, Terminating!"
     exit 1
   fi
 
@@ -580,7 +582,7 @@ function upgrade_scheduler(){
 
     # Make the changes
     if [[ ! -z $s_write_hg ]] && [[ ! -z $s_read_hg ]] && [[ ! -z $s_number_of_writes ]] && [[ ! -z $s_log ]]; then
-      proxysql_exec $LINENO -Ns "UPDATE scheduler SET arg1='--config-file=/etc/proxysql-admin.cnf --writer-is-reader=ondemand --write-hg=$s_write_hg --read-hg=$s_read_hg --writer-count=$s_number_of_writes $s_host_priority --mode=$s_mode --log=$s_log', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$id"
+      proxysql_exec $LINENO -Ns "UPDATE scheduler SET arg1='--config-file=${CONFIG_FILE} --writer-is-reader=ondemand --write-hg=$s_write_hg --read-hg=$s_read_hg --writer-count=$s_number_of_writes $s_host_priority --mode=$s_mode --log=$s_log', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$id"
       check_cmd_and_exit $LINENO $? "Could not update the scheduler (query failed). Exiting."
       rows_modified+=1
     fi
@@ -682,6 +684,7 @@ function parse_args() {
       --config-file )
         CONFIG_FILE="$2"
         check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file"
+        echo $CONFIG_FILE
         debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
         shift 2
         ;;
@@ -1024,6 +1027,10 @@ function writer_is_reader_check() {
         else
           comment="OFFLINE_SOFT"
         fi
+        #before insert do a cleanup of possible leftover
+        proxysql_exec $LINENO -Ns "DELETE FROM mysql_servers where hostname='$server' AND hostgroup_id=$HOSTGROUP_READER_ID AND port=$port;"
+        check_cmd_and_exit $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to REMOVE/CLEANUP $HOSTGROUP_READER_ID:$address (query failed). Exiting."
+        
         proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections) VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'$comment','READ',$MAX_CONNECTIONS);"
         check_cmd_and_exit $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to add $HOSTGROUP_READER_ID:$address (query failed). Exiting."
         log_if_success $LINENO $? "writer-is-reader($WRITER_IS_READER): Adding reader $HOSTGROUP_READER_ID:$address with status OFFLINE_SOFT"
@@ -2601,7 +2608,7 @@ else
     fi
   fi
 
-  upgrade_scheduler
+  #upgrade_scheduler
   exit 1
 fi
 
