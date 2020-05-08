@@ -49,5 +49,5 @@ export WRITERS_ARE_READERS="backup"
 
 export PXC_AUTODISCOVERY=1
 
-export DEBUG=1
+export DEBUG=0
 export ERR_FILE=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
