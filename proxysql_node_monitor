@@ -21,7 +21,7 @@ declare NRED=""
 #
 
 declare -i  DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.16"
+readonly    PROXYSQL_ADMIN_VERSION="2.0.16"
 
 declare     CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare     ERR_FILE="/dev/null"
@@ -55,6 +55,13 @@ declare     LOG_TEXT=""
 # Default value for max_connections in mysql_servers
 declare     MAX_CONNECTIONS="1000"
 
+
+#we need to be able to disable autodiscovery
+#This because in presence of multiple IPs on the PXC nodes the script choose to use the use the one
+#Nodes are registered for internal traffic which is normally different from the one
+#used for application traffic.
+#Result is that the AUTODICOVERY will cause ProxySQL to use wrong IP set
+declare PXC_AUTODISCOVERY=1
 
 #-------------------------------------------------------------------------------
 #
@@ -572,10 +579,14 @@ function update_cluster() {
       check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address (hostgroup $hostgroup) to ProxySQL database, Please check ProxySQL login credentials"
       log_if_success $LINENO $? "Updated ${hostgroup}:${i} node in the ProxySQL database."
     else
-      # Insert a reader if new PXC node not in ProxySQL
-      proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT',$MAX_CONNECTIONS);"
-      check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_address (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
-      log_if_success $LINENO $? "Added ${DEFAULT_HOSTGROUP_ID}:${i} node into ProxySQL database."
+      if [[ $PXC_AUTODISCOVERY -eq 1 ]]; then
+          # Insert a reader if new PXC node not in ProxySQL
+          proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT',$MAX_CONNECTIONS);"
+          check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_address (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
+          log_if_success $LINENO $? "Added ${DEFAULT_HOSTGROUP_ID}:${i} node into ProxySQL database."
+      else
+          log_if_success $LINENO $? "Node identified by AUTODISCOVERY but will not add it because insert by AUTODISCOVERY for PXC is disable. Candidate node: ${DEFAULT_HOSTGROUP_ID}:${i} for ProxySQL database."
+      fi
     fi
 
     CHECK_STATUS=1

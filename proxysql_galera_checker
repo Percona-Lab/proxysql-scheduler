@@ -183,7 +183,8 @@ function usage() {
   cat << EOF
 Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
 
-Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,2000,"${path##*/}/proxysql_galera_checker","--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug");
+Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
+
 
 Options:
   -w, --write-hg=<NUMBER>             Specify ProxySQL write hostgroup.
@@ -323,7 +324,7 @@ function exec_sql() {
   debug "$lineno" "exec_sql : $user@$hostname:$port ($args) ==> $query"
 
   retoutput=$(printf "[client]\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
-      | timeout ${timeout_secs} mysql --defaults-file=/dev/stdin --protocol=tcp \
+      | timeout ${timeout_secs} mysql --defaults-file=/dev/stdin -Nns --protocol=tcp \
               ${args} -e "$query")
   retvalue=$?
 
@@ -352,6 +353,7 @@ function exec_sql() {
       done
     fi
   fi
+  
   printf "${retoutput//%/%%}"
   return $retvalue
 }
@@ -1130,11 +1132,11 @@ function ensure_one_writer_node() {
       AND writer.port = reader.port
     WHERE reader.hostgroup_id = $HOSTGROUP_READER_ID
       AND reader.status = 'ONLINE'
-      AND reader.comment = 'READ'
     ORDER BY writer.status ASC,
              reader.weight DESC,
              reader.hostname,
              reader.port"
+
 
   local possible_hosts
   possible_hosts=$(proxysql_exec $LINENO -Ns "$reader_proxysql_query")
@@ -1143,6 +1145,8 @@ function ensure_one_writer_node() {
     log $LINENO "Cannot find a reader that can be promoted to a writer"
     return
   fi
+
+
 
   while read line; do
     if [[ -z $line ]]; then
@@ -1180,8 +1184,11 @@ function ensure_one_writer_node() {
     #   if we have a writer, move to ONLINE
     #   if no writer, create it
 
+
+
     if [[ $WRITER_IS_READER == "ondemand" || $WRITER_IS_READER == "always" ]]; then
-      if [[ -z $write_stat || $write_stat == "NULL" ]]; then
+      if [[ -z $write_stat || $write_stat == "NULL" || $write_stat=="OFFLINE_SOFT" ]]; then
+
         # Writer does not exist, add an ONLINE writer
         proxysql_exec $LINENO -Ns \
           "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections)
@@ -1427,13 +1434,15 @@ function update_writers() {
     fi
 
     local wsrep_status
+    local wsrep_reject_queries
     local pxc_main_mode
     local result
     local address
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-    wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    wsrep_status=$(echo "$result" | grep "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+    wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
 
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
@@ -1443,6 +1452,13 @@ function update_writers() {
     if [[ -z $pxc_main_mode ]]; then
       pxc_main_mode="DISABLED"
     fi
+
+    #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+    #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+    if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+        wsrep_status=2 
+    fi
+
 
     # If this node was added because of the priority list and the
     # node is not reporting SYNCED, then just skip it
@@ -1725,13 +1741,15 @@ function update_readers() {
     fi
 
     local wsrep_status
+    local wsrep_reject_queries
     local pxc_main_mode
     local result
     local address
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-    wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+    wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
 
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
@@ -1740,6 +1758,12 @@ function update_readers() {
     # For PXC 5.6 there is no pxc_maint_mode, so assume DISABLED
     if [[ -z $pxc_main_mode ]]; then
       pxc_main_mode="DISABLED"
+    fi
+
+    #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+    #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+    if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+        wsrep_status=2 
     fi
 
     log "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
@@ -1826,6 +1850,7 @@ function search_for_desynced_writers() {
   local reload_check_file=$1
   local cnt=0
   local sort_order="ASC"
+  local exit_loop=0
 
   # We want the writers to come before the readers
   if [[ $HOSTGROUP_WRITER_ID -gt $HOSTGROUP_READER_ID ]]; then
@@ -1842,6 +1867,8 @@ function search_for_desynced_writers() {
   query_result=$(proxysql_exec $LINENO -Ns "$writer_query")
   check_cmd_and_exit $LINENO $? "Could not get the list of nodes (query failed). Exiting."
 
+
+
   while read line; do
     if [[ -z $line ]]; then
       continue
@@ -1851,19 +1878,20 @@ function search_for_desynced_writers() {
     server=$(echo "$line" | cut -f2)
     port=$(echo "$line" | cut -f3)
     stat=$(echo "$line" | cut -f4)
-
     safety_cnt=0
 
     while [ ${cnt} -lt $NUMBER_WRITERS -a ${safety_cnt} -lt 5 ]
       do
         local wsrep_status
+        local wsrep_reject_queries
         local pxc_main_mode
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-        wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+        wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
         if [[ -z $wsrep_status ]]; then
           wsrep_status="<unknown:query failed>"
@@ -1874,6 +1902,12 @@ function search_for_desynced_writers() {
           pxc_main_mode="DISABLED"
         fi
 
+        #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+        #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+        if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+            wsrep_status=1 
+        fi
+        
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
           log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
@@ -1924,9 +1958,23 @@ function search_for_desynced_writers() {
           # sense if all the nodes are already down).  If any of the nodes are
           # up, this node will be moved to OFFLINE_SOFT since it is not in
           # the SYNCED(4) state.
+
+        #This is to allow a node to be replaced when non operative fro, WSREP point of view
+        elif [ ${wsrep_status} -eq 1 ] && [ "$stat" = "OFFLINE_SOFT" ]; then
+  #        ensure_one_writer_node "${reload_check_file}"
+          echo "1" > ${reload_check_file}
+          safety_cnt=10
+          exit_loop=0
+
         fi
+        if [ $exit_loop -eq 1 ];then
+	   break
+	fi
         safety_cnt=$(( $safety_cnt + 1 ))
     done
+    if [ $exit_loop -eq 1 ];then
+         break
+    fi
   done< <(printf "$query_result\n")
 }
 
@@ -2614,7 +2662,16 @@ fi
 
 trap cleanup_handler EXIT
 
+#Let us measure the time we take PLEASE!!
+start_time=$( date +%s.%N )
+
 parse_args "$@"
 main
 
+elapsed_time=$( date +%s.%N --date="$start_time seconds ago" )
+log "" "###### Total execution time ######"
+log "" "elapsed_time: $elapsed_time";
+
+
 exit 0
+

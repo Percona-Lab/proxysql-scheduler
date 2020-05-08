@@ -46,3 +46,8 @@ export USE_SSL="no"
 # If set to 'backup', then only the backup-writers will be added to
 # the read hostgroup.
 export WRITERS_ARE_READERS="backup"
+
+export PXC_AUTODISCOVERY=1
+
+export DEBUG=1
+export ERR_FILE=/var/lib/proxysql/pxc_test_proxysql_galera_check.log

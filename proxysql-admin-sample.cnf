@@ -8,7 +8,7 @@ export PROXYSQL_PORT='6032'
 # PXC admin credentials for connecting to pxc-cluster-node.
 export CLUSTER_USERNAME='dba'
 export CLUSTER_PASSWORD='test'
-export CLUSTER_HOSTNAME='192.168.4.22t'
+export CLUSTER_HOSTNAME='192.168.4.22'
 export CLUSTER_PORT='3306'
 
 # proxysql monitoring user. proxysql admin script will create this user in pxc to monitor pxc-nodes.
@@ -46,3 +46,8 @@ export USE_SSL="no"
 # If set to 'backup', then only the backup-writers will be added to
 # the read hostgroup.
 export WRITERS_ARE_READERS="backup"
+
+export PXC_AUTODISCOVERY=1
+
+export DEBUG=1
+export ERR_FILE=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
