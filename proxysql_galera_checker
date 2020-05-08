@@ -181,9 +181,9 @@ function debug() {
 function usage() {
   local path=$0
   cat << EOF
-Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
+Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
 
-Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=/var/lib/proxysql/priority1.txt --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
+Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=--priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
 
 
 Options:
