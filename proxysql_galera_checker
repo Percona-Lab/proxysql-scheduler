@@ -82,7 +82,8 @@ declare     MAX_CONNECTIONS=1000
 #
 
 function log() {
-  local lineno=$1
+  local log_level=$1
+  local lineno=$2
   shift
   if [[ $VERBOSE -eq 1 ]]; then
     if [[ -n $ERR_FILE ]]; then
@@ -92,8 +93,11 @@ function log() {
         echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
       fi
     fi
+  elif [[ $VERBOSE -eq 1  &&  log_level -gt 1 ]]; then
+        echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
   fi
 }
+  
 
 # Checks the return value of the most recent command
 #
@@ -114,7 +118,7 @@ function check_cmd() {
   if [[ ${retcode} -ne 0 ]]; then
     error "$lineno" $errmsg
     if [[ -n "$*" ]]; then
-      log "$lineno" $*
+      log "0" "$LINENO" $*
     fi
   fi
   return $retcode
@@ -149,7 +153,7 @@ function log_if_success() {
   shift 2
 
   if [[ $rc -eq 0 ]]; then
-    log "$lineno" "$*"
+    log "0" "$LINENO" "$*"
   fi
   return $rc
 }
@@ -158,14 +162,14 @@ function error() {
   local lineno=$1
   shift
 
-  log "$lineno" "proxysql_galera_checker : Error ($lineno): $*"
+  log "0" "$LINENO" "proxysql_galera_checker : Error ($lineno): $*"
 }
 
 function warning() {
   local lineno=$1
   shift
 
-  log "$lineno" "Warning: $*"
+  log "0" "$LINENO" "Warning: $*"
 }
 
 function debug() {
@@ -176,7 +180,7 @@ function debug() {
   local lineno=$1
   shift
 
-  log "$lineno" "${RED}debug: $*${NRED}"
+  log "0" "$LINENO" "${RED}debug: $*${NRED}"
 }
 
 function usage() {
@@ -641,12 +645,12 @@ function change_server_status() {
           (hostname,hostgroup_id,port,weight,status,comment,max_connections)
           VALUES ('$server',$hostgroup,$port,1000000,'$status','WRITE',$MAX_CONNECTIONS);"
     check_cmd_and_exit $LINENO $? "Could not create new mysql_servers row (query failed). Exiting."
-    log "$lineno" "Adding server $hostgroup:$address with status $status. Reason: $comment"
+    log "0" "$LINENO" "Adding server $hostgroup:$address with status $status. Reason: $comment"
   else
     proxysql_exec $lineno -Ns "UPDATE mysql_servers
           set status = '$status' WHERE hostgroup_id = $hostgroup AND hostname = '$server' AND port = $port;" 2>>${ERR_FILE}
     check_cmd_and_exit $LINENO $? "Could not update new mysql_servers row (query failed). Exiting."
-    log "$lineno" "Changing server $hostgroup:$address to status $status. Reason: $comment"
+    log "0" "$LINENO" "Changing server $hostgroup:$address to status $status. Reason: $comment"
   fi
 }
 
@@ -1132,7 +1136,7 @@ function check_is_galera_checker_running() {
     if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check >/dev/null 2>&1 ; then
       ps -p $GPID > /dev/null 2>&1
       if [[ $? -eq 0 ]]; then
-        log "$LINENO" "ProxySQL galera checker process already running. (pid:$GPID  this pid:$$)"
+        log "0" "$LINENO" "ProxySQL galera checker process already running. (pid:$GPID  this pid:$$)"
 
         # We don't want to remove this file on cleanup
         CHECKER_PIDFILE=""
@@ -2510,7 +2514,7 @@ function main() {
       else
         local arg1=""
         local my_path=""
-        log "$LINENO" "Updating scheduler for cluster:${cluster_name} write_hg:$HOSTGROUP_WRITER_ID"
+        log "0" "$LINENO" "Updating scheduler for cluster:${cluster_name} write_hg:$HOSTGROUP_WRITER_ID"
         arg1=$(proxysql_exec $LINENO -Ns "SELECT arg1 from scheduler where id=${scheduler_id}")
         check_cmd_and_exit $LINENO $? "Could not get arg1 from scheduler from (query failed)" "Please check ProxySQL credentials and status."
         if [[ -z $arg1 ]]; then
