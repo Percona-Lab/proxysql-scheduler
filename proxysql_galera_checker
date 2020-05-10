@@ -19,7 +19,7 @@ set -o nounset    # no undefined variables
 #
 declare  -i DEBUG=0
 readonly    PROXYSQL_ADMIN_VERSION="1.4.16"
-
+declare     VERBOSE=0
 #Timeout exists for instances where mysqld may be hung
 declare  -i TIMEOUT=10
 
@@ -84,12 +84,13 @@ declare     MAX_CONNECTIONS=1000
 function log() {
   local lineno=$1
   shift
-
-  if [[ -n $ERR_FILE ]]; then
-    if [[ -n $lineno && $DEBUG -ne 0 ]]; then
-      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ (line $lineno) $*" >> $ERR_FILE
-    else
-      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
+  if [[ $VERBOSE -eq 1 ]]; then
+    if [[ -n $ERR_FILE ]]; then
+      if [[ -n $lineno && $DEBUG -ne 0 ]]; then
+        echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ (line $lineno) $*" >> $ERR_FILE
+      else
+        echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
+      fi
     fi
   fi
 }
@@ -354,6 +355,7 @@ function exec_sql() {
     fi
   fi
   
+  retoutput=$(sed -e 's/^--//'  <<<"$retoutput")
   printf "${retoutput//%/%%}"
   return $retvalue
 }
@@ -2501,7 +2503,8 @@ function main() {
       if [[ -z $scheduler_id ]]; then
         warning "$LINENO" "Cannot update scheduler due to missing scheduler_id"
       else
-        local arg1 my_path
+        local arg1=""
+        local my_path=""
         log "$LINENO" "Updating scheduler for cluster:${cluster_name} write_hg:$HOSTGROUP_WRITER_ID"
         arg1=$(proxysql_exec $LINENO -Ns "SELECT arg1 from scheduler where id=${scheduler_id}")
         check_cmd_and_exit $LINENO $? "Could not get arg1 from scheduler from (query failed)" "Please check ProxySQL credentials and status."
