@@ -93,7 +93,7 @@ function log() {
         echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
       fi
     fi
-  elif [ $VERBOSE -eq 1 ] && [ log_level -gt 1 ]; then
+  elif [[ $VERBOSE -eq 0 && log_level -gt 1 ]]; then
         echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
   fi
 }
