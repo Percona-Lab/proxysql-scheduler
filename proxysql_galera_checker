@@ -653,44 +653,39 @@ function change_server_status() {
 #
 function parse_args2(){
   local opt=""
-  local opts=$(getopt --options=w:r:c:l:n:m:p:vhd \
-    --longoptions=write-hg:,\
-                  read-hg:, \
-                  config-file:,\
-                  log:,\
-                  node-monitor-log:,\
-                  writer-count:,\
-                  mode:,\
-                  priority:,\
-                  writer-is-reader:,\
-                  use-slave-as-writer:,\
-                  log-text:,\
-                  max-connections:,\
-                  version,\
-                  debug,\
-                  help, \
-                  name="$(basename "$0")" -- "$my_args");
-  
+  local opts=""
+
+  opts="$(getopt --name "$(basename "$0")"  --options w:r:c:l:n:m:p:vhd  -l write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,max-connections:,version,debug,help -- "$@")"
+
+ if [[ $? -ne 0 ]];then
+    echo "Invalid option provided $my_args"
+ fi
+
+#echo "BB $opts"
   eval set -- "$opts"
-  
-  while true; do
-    echo "$1"
-    echo "$2"
-    
-    case ${opt} in
-        -- ) shift;
-             break
+#echo "CCC $opts"
+
+  for opt
+  do
+    echo "CCC $opt"
+    case $opt in
+        -w|--write-hg )
+          shift
+          HOSTGROUP_WRITER_ID=$1
+          log $LINENO "write-hg = $HOSTGROUP_WRITER_ID"
         ;;
-        w|write-hg )
-          HOSTGROUP_WRITER_ID=$opt
-        ;;  
-        r| read-hg )
-          HOSTGROUP_READER_ID=$opt
+        -r|--read-hg )
+          shift
+          HOSTGROUP_READER_ID=$1
+          log $LINENO "read-hg = $HOSTGROUP_READER_ID"
         ;;
-        c|config-file )
+        -c|--config-file )
+          log $LINENO "config-file = $CONFIG_FILE"
         ;;
-        l|log )
-          ERR_FILE="${opt}"
+        -l|--log )
+          shift
+          ERR_FILE="$1"
+          log $LINENO "log = $ERR_FILE"
           # Test if stderr is open to a terminal
           # We cannot use stdout as the log output, since it is used
           # to return values.
@@ -702,49 +697,60 @@ function parse_args2(){
             NRED=""
           fi
         ;;
-        log-text )
-          LOG_TEXT="${opt}"
+        --log-text )
+          shift
+          LOG_TEXT="$1"
+          log $LINENO "log-text = $LOG_TEXT"
         ;;
-        node-monitor-log )
-          NODE_MONITOR_LOG_FILE="${opt}"        
+        --node-monitor-log )
+          shift
+          NODE_MONITOR_LOG_FILE="$1"
+          log $LINENO "node-monitor-log = $NODE_MONITOR_LOG_FILE"
         ;;
-        n|writer-count )
-          NUMBER_WRITERS=$opt      
+        -n|--writer-count )
+          shift
+          NUMBER_WRITERS=$1
+          log $LINENO "writer-count = $NUMBER_WRITERS"
         ;;
-        m|mode )
-          P_MODE="${opt}"
+        -m|--mode )
+          shift
+          P_MODE="$1"
           if [ "$P_MODE" != "loadbal" ] && [ "$P_MODE" != "singlewrite" ]; then
             echo "ERROR: Invalid --mode passed:"
             echo "  Please choose one of these modes: loadbal, singlewrite"
             exit 1
           fi
+          log $LINENO "mode = $P_MODE"
         ;;
-        p|priority )
-          P_PRIORITY="${2}opt}"
-          if [ "$P_MODE" != "loadbal" ] && [ "$P_MODE" != "singlewrite" ]; then
-          echo "ERROR: Invalid --mode passed:"
-          echo "  Please choose one of these modes: loadbal, singlewrite"
-          exit 1
-        fi
+        -p|--priority )
+          shift
+          P_PRIORITY="$1"
+          log $LINENO "priority = $P_PRIORITY"
         ;;
-        writer-is-reader )
-          WRITER_IS_READER="${opt}"
+        --writer-is-reader )
+          shift
+          WRITER_IS_READER="$1"
+          log $LINENO "writer-is=reader = $WRITER_IS_READER"
         ;;
-        use-slave-as-writer )
-          SLAVE_IS_WRITER="${opt}"
+        --use-slave-as-writer )
+          shift
+          SLAVE_IS_WRITER="$1"
+          log $LINENO "use-slave-as-writer = $SLAVE_IS_WRITER"
         ;;
-        max-connections )
-          MAX_CONNECTIONS="${opt}"
+        --max-connections )
+          shift
+          MAX_CONNECTIONS="$1"
+          log $LINENO "max-connections = $MAX_CONNECTIONS"
         ;;
-        v|version )
+        -v|--version )
           echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
           exit 0
         ;;
-        h|help )
+        -h|--help )
           usage
           exit 0
         ;;
-        d|debug )
+        -d|--debug )
           DEBUG=1
         ;;
       \? )
@@ -2878,6 +2884,19 @@ for arg in $my_args
         #echo $CONFIG_FILE
         break
         ;;
+      --log=* )
+        ERR_FILE=$(echo "$arg"|awk -F '=' '{print $2}')
+        # Test if stderr is open to a terminal
+        # We cannot use stdout as the log output, since it is used
+        # to return values.
+        if [[ $ERR_FILE == "/dev/stderr" ]]; then
+           RED=$(tput setaf 1)
+           NRED=$(tput sgr0)
+        else
+           RED=""
+           NRED=""
+        fi
+      ;;  
     esac
 done
 
