@@ -2518,8 +2518,8 @@ function main() {
         else
           my_path=$(echo ${PROXYSQL_DATADIR}/${cluster_name}_proxysql_galera_check.log | sed  's#\/#\\\/#g')
           arg1=$(echo $arg1 | sed "s/--log=.*/--log=$my_path/g")
-
-          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name',arg1='$arg1' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
+#I remove the log name replacement because if that is defined by the user at it should then no replacement should happen 
+          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
           check_cmd_and_exit $LINENO $? "Could not update scheduler from (query failed). Exiting."
         fi
       fi
