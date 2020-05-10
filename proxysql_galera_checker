@@ -648,6 +648,191 @@ function change_server_status() {
   fi
 }
 
+# Arguments:
+#   The arguments to the script.
+#
+function parse_args2(){
+  local opt
+  while getopt --options=w:r:c:l:n:m:p:vhd \
+    --longoptions=write-hg:,\
+                  read-hg:, \
+                  config-file:,\
+                  log:,\
+                  node-monitor-log:,\
+                  writer-count:,\
+                  mode:,\
+                  priority:,\
+                  writer-is-reader:,\
+                  use-slave-as-writer:,\
+                  log-text:,\
+                  max-connections:,\
+                  version,\
+                  debug,\
+                  help, \
+                  name="$(basename "$0")" -- "$@" opt; do
+    case ${opt} in
+        w|write-hg )
+          HOSTGROUP_WRITER_ID=$opt
+        ;;  
+        r| read-hg )
+          HOSTGROUP_READER_ID=$opt
+        ;;
+        c|config-file )
+          
+        ;;
+        l|log )
+          ERR_FILE="${opt}"
+          # Test if stderr is open to a terminal
+          # We cannot use stdout as the log output, since it is used
+          # to return values.
+          if [[ $ERR_FILE == "/dev/stderr" ]]; then
+            RED=$(tput setaf 1)
+            NRED=$(tput sgr0)
+          else
+            RED=""
+            NRED=""
+          fi
+        ;;
+        log-text )
+          LOG_TEXT="${opt}"
+        ;;
+        node-monitor-log )
+          NODE_MONITOR_LOG_FILE="${opt}"        
+        ;;
+        n|writer-count )
+          NUMBER_WRITERS=$opt      
+        ;;
+        m|mode )
+          P_MODE="${opt}"
+          if [ "$P_MODE" != "loadbal" ] && [ "$P_MODE" != "singlewrite" ]; then
+            echo "ERROR: Invalid --mode passed:"
+            echo "  Please choose one of these modes: loadbal, singlewrite"
+            exit 1
+          fi
+        ;;
+        p|priority )
+          P_PRIORITY="${2}opt}"
+          if [ "$P_MODE" != "loadbal" ] && [ "$P_MODE" != "singlewrite" ]; then
+          echo "ERROR: Invalid --mode passed:"
+          echo "  Please choose one of these modes: loadbal, singlewrite"
+          exit 1
+        fi
+        ;;
+        writer-is-reader )
+          WRITER_IS_READER="${opt}"
+        ;;
+        use-slave-as-writer )
+          SLAVE_IS_WRITER="${opt}"
+        ;;
+        max-connections )
+          MAX_CONNECTIONS="${opt}"
+        ;;
+        v|version )
+          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
+          exit 0
+        ;;
+        h|help )
+          usage
+          exit 0
+        ;;
+        d|debug )
+          DEBUG=1
+        ;;
+      \? )
+        echo "Invalid option: $OPTARG" 1>&2
+        ;;
+      : )
+        echo "Invalid option: $OPTARG requires an argument" 1>&2
+        ;;
+    esac
+  done
+  shift $((OPTIND -1))
+}
+
+function arguments_validation(){
+    #
+  # Argument validation
+  #
+  test $HOSTGROUP_WRITER_ID -ge 0 &>/dev/null
+  if [[ $? -ne 0 ]]; then
+    echo "ERROR: writer hostgroup_id is not an integer"
+    usage
+    exit 1
+  fi
+
+  test $HOSTGROUP_READER_ID -ge -1 &>/dev/null
+  if [[ $? -ne 0 ]]; then
+    echo "ERROR: reader hostgroup_id is not an integer"
+    usage
+    exit 1
+  fi
+
+  HOSTGROUP_SLAVEREADER_ID=$HOSTGROUP_READER_ID
+  if [ $HOSTGROUP_SLAVEREADER_ID -eq $HOSTGROUP_WRITER_ID ];then
+    echo "WARNING: reader hostgroup and writer hostgroup cannot have same ID value. Incrementing reader by 1"
+    let HOSTGROUP_SLAVEREADER_ID+=1
+  fi
+
+  if [[ $NUMBER_WRITERS -lt 0 ]]; then
+    echo "ERROR: The number of writers should either be 0 to enable all possible nodes ONLINE"
+    echo "       or be larger than 0 to limit the number of writers"
+    usage
+    exit 1
+  fi
+
+  if [[ ! $WRITER_IS_READER =~ ^(always|never|ondemand)$ ]]; then
+    error "" "Invalid --writer-is-reader option: '$WRITER_IS_READER'"
+    echo "Please choose one of these values: always, never, or ondemand"
+    exit 1
+  fi
+
+  if [[ ! $SLAVE_IS_WRITER =~ ^(yes|YES|no|NO)$ ]]; then
+    error "" "Invalid --use-slave-as-writer option: '$SLAVE_IS_WRITER'"
+    echo "Please choose either yes or no"
+    exit 1
+  fi
+  if [[ $SLAVE_IS_WRITER =~ ^(yes|YES)$ ]]; then
+    SLAVE_IS_WRITER="yes"
+  else
+    SLAVE_IS_WRITER="no"
+  fi
+
+  # These may get set in the config file, but they are not used
+  # by this script.  So to avoid confusion and problems, remove
+  # these variables explicitly.
+  unset WRITE_HOSTGROUP_ID
+  unset READ_HOSTGROUP_ID
+  unset SLAVEREAD_HOSTGROUP_ID
+
+
+  # Verify that we have an integer
+  if [[ -n $MAX_CONNECTIONS ]]; then
+    if ! [ "$MAX_CONNECTIONS" -eq "$MAX_CONNECTIONS" ] 2>/dev/null
+    then
+      error "" "option '--max-connections' parameter (must be a number) : $MAX_CONNECTIONS"
+      exit 1
+    fi
+  fi
+
+  readonly ERR_FILE
+  readonly CONFIG_FILE
+  readonly DEBUG_ERR_FILE
+
+  readonly HOSTGROUP_WRITER_ID
+  readonly HOSTGROUP_READER_ID
+  readonly HOSTGROUP_SLAVEREADER_ID
+  readonly NUMBER_WRITERS
+
+  readonly WRITER_IS_READER
+  readonly SLAVE_IS_WRITER
+
+  readonly P_PRIORITY
+  readonly P_MODE
+
+  readonly MAX_CONNECTIONS
+  
+}
+
 
 # Arguments:
 #   The arguments to the script.
@@ -2583,81 +2768,84 @@ function main() {
   fi
 }
 
+#
+
+
+
 
 #-------------------------------------------------------------------------------
 #
 # Step 4 : Begin script execution
 #
 
-#
-# In the initial version, ProxySQL has 5 slots for command-line arguments
-# and would send them separately (each enclosed in double quotes,
-# such as "arg1" "arg2" etc..).
-#
-# We now configure all parameters in the arg1 field (since we need more
-# than 5 arguments).  This means that we now receive all the arguments
-# in one parameter "arg1 arg2 arg3 arg4 arg5"
-#
-# This means that anytime this script is called with > 1 argument, we
-# assume that the old method is in use and we need to upgrade the script
-# to the new method (in upgrade_scheduler).
-#
 
-if [ "$#" -eq 1 ]; then
+#Preliminary checks
+#getopt is mandatory 
+getopt -V > /dev/null
+if [ $? -ne 0 ]; then
+  echo "Script require getopt. Please install if missing and re-run the script"
+  echo "The getopt command is part of the util-linux package and is available from Linux Kernel Archive "
+  exit
+fi
+
+#All parameters come from ARG1.
+if [ "$#" -ne 1 ]; then
   # Below set will reshuffle parameters.
   # example arg1=" --one=1 --two=2" will result in:
   # $1 = --one=1
   # $2 = --two=2
   #
   # The eval is needed here to preserve whitespace in the arguments
-  eval set -- $1
-else
-  # Parse the arguments
-  declare param value
+  #eval set -- $1
+  echo "Wrong number of parameters. We need all arguments grouped in a single one double quoted in ARG1"
+  exit 1
+#else
+#  # Parse the arguments
+#  declare param value
+#
+#  # We don't need all the options here, just the log/debug options
+#  while [[ $# -gt 0 && "$1" != "" ]]; do
+#      param=`echo $1 | awk -F= '{print $1}'`
+#      value=`echo $1 | awk -F= '{print $2}'`
+#
+#      # Assume that all options start with a '-'
+#      # otherwise treat as a positional parameter
+#      if [[ ! $param =~ ^- ]]; then
+#        shift
+#        continue
+#      fi
+#      case $param in
+#        -h | --help)
+#          usage
+#          exit 0
+#          ;;
+#        --debug)
+#          DEBUG=1
+#          ;;
+#        -v | --version)
+#          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
+#          exit 0
+#          ;;
+#        --log)
+#          if [[ -n $value ]]; then
+#            ERR_FILE=$value
+#          fi
+#          ;;
+#      esac
+#      shift
+#  done
 
-  # We don't need all the options here, just the log/debug options
-  while [[ $# -gt 0 && "$1" != "" ]]; do
-      param=`echo $1 | awk -F= '{print $1}'`
-      value=`echo $1 | awk -F= '{print $2}'`
-
-      # Assume that all options start with a '-'
-      # otherwise treat as a positional parameter
-      if [[ ! $param =~ ^- ]]; then
-        shift
-        continue
-      fi
-      case $param in
-        -h | --help)
-          usage
-          exit 0
-          ;;
-        --debug)
-          DEBUG=1
-          ;;
-        -v | --version)
-          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
-          exit 0
-          ;;
-        --log)
-          if [[ -n $value ]]; then
-            ERR_FILE=$value
-          fi
-          ;;
-      esac
-      shift
-  done
-
-  echo "Old config detected...trying to upgrade More than one parameter"
-
-  if [[ $DEBUG -eq 1 ]]; then
-    # For now
-    if [[ -z $ERR_FILE && -t 1 ]]; then
-      ERR_FILE=/dev/stderr
-    fi
-  fi
+  #echo "Old config detected...trying to upgrade More than one parameter"
+  #
+  #if [[ $DEBUG -eq 1 ]]; then
+  #  # For now
+  #  if [[ -z $ERR_FILE && -t 1 ]]; then
+  #    ERR_FILE=/dev/stderr
+  #  fi
+  #fi
 
   #upgrade_scheduler
-  exit 1
+  #exit 1
 fi
 
 trap cleanup_handler EXIT
@@ -2665,7 +2853,34 @@ trap cleanup_handler EXIT
 #Let us measure the time we take PLEASE!!
 start_time=$( date +%s.%N )
 
-parse_args "$@"
+#just load the config file before anything else
+ for arg
+  do
+    case "$arg" in
+      -- ) shift; break;;
+      --config-file )
+        CONFIG_FILE="$2"
+        break
+        ;;
+    esac
+done
+
+readonly CONFIG_FILE
+if [ ! -e "$CONFIG_FILE" ]; then
+    warning "" "Could not locate the configuration file: $CONFIG_FILE"
+else
+    check_permission -r $LINENO "$CONFIG_FILE"
+    debug $LINENO "Loading $CONFIG_FILE"
+    source "$CONFIG_FILE"
+fi
+
+#parameters from command line will overwrite the CONFIGs from the file 
+parse_args2 "$@"
+
+#validate all arguments
+arguments_validation
+
+#run script
 main
 
 elapsed_time=$( date +%s.%N --date="$start_time seconds ago" )
