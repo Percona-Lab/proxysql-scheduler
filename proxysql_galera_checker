@@ -652,6 +652,7 @@ function change_server_status() {
 #   The arguments to the script.
 #
 function parse_args2(){
+  local opt=""
   local opts=$(getopt --options=w:r:c:l:n:m:p:vhd \
     --longoptions=write-hg:,\
                   read-hg:, \
