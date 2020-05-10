@@ -652,8 +652,7 @@ function change_server_status() {
 #   The arguments to the script.
 #
 function parse_args2(){
-  local opt
-  while getopt --options=w:r:c:l:n:m:p:vhd \
+  local opts=$(getopt --options=w:r:c:l:n:m:p:vhd \
     --longoptions=write-hg:,\
                   read-hg:, \
                   config-file:,\
@@ -669,8 +668,18 @@ function parse_args2(){
                   version,\
                   debug,\
                   help, \
-                  name="$(basename "$0")" -- "$@" opt; do
+                  name="$(basename "$0")" -- "$my_args");
+  
+  eval set -- "$opts"
+  
+  while true; do
+    echo "$1"
+    echo "$2"
+    
     case ${opt} in
+        -- ) shift;
+             break
+        ;;
         w|write-hg )
           HOSTGROUP_WRITER_ID=$opt
         ;;  
@@ -678,7 +687,6 @@ function parse_args2(){
           HOSTGROUP_READER_ID=$opt
         ;;
         c|config-file )
-          
         ;;
         l|log )
           ERR_FILE="${opt}"
@@ -745,8 +753,9 @@ function parse_args2(){
         echo "Invalid option: $OPTARG requires an argument" 1>&2
         ;;
     esac
+    shift
   done
-  shift $((OPTIND -1))
+  
 }
 
 function arguments_validation(){
@@ -2853,13 +2862,19 @@ trap cleanup_handler EXIT
 #Let us measure the time we take PLEASE!!
 start_time=$( date +%s.%N )
 
-#just load the config file before anything else
- for arg
+######just load the config file before anything else
+# First reansform the quoted args removing double quote
+declare my_args=$(sed -e 's/^"//' -e 's/"$//' <<<"$@")
+
+#parse only config file and apply it
+for arg in $my_args
   do
+    #echo $arg
     case "$arg" in
       -- ) shift; break;;
-      --config-file )
-        CONFIG_FILE="$2"
+      --config-file=* )
+        CONFIG_FILE=$(echo "$arg"|awk -F '=' '{print $2}')
+        #echo $CONFIG_FILE
         break
         ;;
     esac
@@ -2867,7 +2882,8 @@ done
 
 readonly CONFIG_FILE
 if [ ! -e "$CONFIG_FILE" ]; then
-    warning "" "Could not locate the configuration file: $CONFIG_FILE"
+    error "" "Could not locate the configuration file: $CONFIG_FILE"
+    exit 1
 else
     check_permission -r $LINENO "$CONFIG_FILE"
     debug $LINENO "Loading $CONFIG_FILE"
@@ -2875,7 +2891,7 @@ else
 fi
 
 #parameters from command line will overwrite the CONFIGs from the file 
-parse_args2 "$@"
+parse_args2 $my_args
 
 #validate all arguments
 arguments_validation
