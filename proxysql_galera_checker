@@ -1674,7 +1674,7 @@ function update_writers() {
       continue
     fi
 
-    log "" "--> Checking WRITE server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
+    log "0" "" "--> Checking WRITE server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
 
     # we have to limit amount of writers, WSREP status OK, AND node is marked ONLINE
     # PXC and ProxySQL agreee on the status
@@ -1682,7 +1682,7 @@ function update_writers() {
     if [ $NUMBER_WRITERS -gt 0 -a "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
       if [[ $number_writers_online -lt $NUMBER_WRITERS ]]; then
         number_writers_online=$(( $number_writers_online + 1 ))
-        log "" "server $hostgroup:$address is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
+        log "0" "" "server $hostgroup:$address is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
       else
         number_writers_online=$(( $number_writers_online + 1 ))
         change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "$rdstat" \
@@ -1748,10 +1748,10 @@ function update_writers() {
       echo "1" > ${reload_check_file}
     # wsrep:not ok  pxc:--  status:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
-      log "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
+      log "0" "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
     # wsrep:--  pxc:not ok  status:offline soft
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
-      log "" "server $hostgroup:$address is already OFFLINE_SOFT, pxc_maint_mode is ${pxc_main_mode} which is not ok"
+      log "0" "" "server $hostgroup:$address is already OFFLINE_SOFT, pxc_maint_mode is ${pxc_main_mode} which is not ok"
     fi
   done< <(printf "${proxysql_list[@]}\n")
 }
@@ -1974,13 +1974,13 @@ function update_readers() {
         wsrep_status=2 
     fi
 
-    log "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
+    log "0" "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
 
     if [[ $WRITER_IS_READER == "ondemand" && $writer_stat == "ONLINE" ]] ; then
       if [ $online_readonly_nodes_found -eq 0 ] ; then
         # WSREP:ok  PXC:ok  STATUS:online
         if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-          log "" "server $hostgroup:$address is already ONLINE, is also write node in ONLINE state, not enough non-ONLINE readers found"
+          log "0" "" "server $hostgroup:$address is already ONLINE, is also write node in ONLINE state, not enough non-ONLINE readers found"
         fi
 
         # WSREP:ok  PXC:ok  STATUS:not online
@@ -2003,17 +2003,17 @@ function update_readers() {
         fi
         # WSREP:ok  PXC:ok  STATUS:not online
         if [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-          log "" "server $hostgroup:$address is $stat, keeping node as $stat,as it is an ONLINE writer and we prefer not to have writers as readers (writer-is-reader:ondemand)"
+          log "0" "" "server $hostgroup:$address is $stat, keeping node as $stat,as it is an ONLINE writer and we prefer not to have writers as readers (writer-is-reader:ondemand)"
         fi
       fi
     else
       # WSREP:ok  PXC:ok  STATUS:online
       if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-        log "" "server $hostgroup:$address is already ONLINE"
+        log "0" "" "server $hostgroup:$address is already ONLINE"
         online_readonly_nodes_found=$(( $online_readonly_nodes_found + 1 ))
       # WSREP:ok  PXC:not ok  STATUS:not online
       elif [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" != "DISABLED" ] ; then
-        log "" "server $hostgroup:$address is $stat"
+        log "0" "" "server $hostgroup:$address is $stat"
       fi
 
       # WSREP status OK, but node is not marked ONLINE
@@ -2039,7 +2039,7 @@ function update_readers() {
       echo "1" > ${reload_check_file}
     # WSREP:not ok  STATUS:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" ]; then
-      log "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
+      log "0" "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
     fi
   done< <(printf "$query_result\n")
 }
@@ -2118,11 +2118,11 @@ function search_for_desynced_writers() {
         
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
-          log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
+          log "0" "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
 
-        log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
+        log "0" "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ]; then
           # if we are on Donor/Desync and not online in mysql_servers -> proceed
 
@@ -2235,11 +2235,11 @@ function search_for_desynced_readers() {
 
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
-          log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
+          log "0" "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
 
-        log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
+        log "0" "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ];then
           # if we are on Donor/Desync an not online in mysql_servers -> proceed
           change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
@@ -2570,7 +2570,7 @@ function main() {
     # Cannot find it in same directory, try default location
     monitor_dir="/usr/bin"
     if [[ ! -f $monitor_dir/proxysql_node_monitor ]]; then
-      log "" "ERROR! Could not find proxysql_node_monitor. Terminating"
+      log "0" "" "ERROR! Could not find proxysql_node_monitor. Terminating"
       exit 1
     fi
   fi
@@ -2615,18 +2615,18 @@ function main() {
                                      --log="$proxysql_monitor_log" $more_monitor_options
 
   # print information prior to a run if ${ERR_FILE} is defined
-  log "" "###### proxysql_galera_checker.sh SUMMARY ######"
-  log "" "Hostgroup writers $HOSTGROUP_WRITER_ID"
-  log "" "Hostgroup readers $HOSTGROUP_READER_ID"
-  log "" "Number of writers $NUMBER_WRITERS"
-  log "" "Writers are readers $WRITER_IS_READER"
-  log "" "Log file          $ERR_FILE"
-  log "" "Mode              $MODE"
+  log "0" "" "###### proxysql_galera_checker.sh SUMMARY ######"
+  log "0" "" "Hostgroup writers $HOSTGROUP_WRITER_ID"
+  log "0" "" "Hostgroup readers $HOSTGROUP_READER_ID"
+  log "0" "" "Number of writers $NUMBER_WRITERS"
+  log "0" "" "Writers are readers $WRITER_IS_READER"
+  log "0" "" "Log file          $ERR_FILE"
+  log "0" "" "Mode              $MODE"
   if [[ -n $P_PRIORITY ]]; then
-    log "" "Priority          $P_PRIORITY"
+    log "0" "" "Priority          $P_PRIORITY"
   fi
   if [[ -n $LOG_TEXT ]]; then
-    log "" "Extra notes       $LOG_TEXT"
+    log "0" "" "Extra notes       $LOG_TEXT"
   fi
 
   local number_readers_online=0
@@ -2634,7 +2634,7 @@ function main() {
   local save_reload_state=0
 
 
-  log "" "###### HANDLE WRITER NODES ######"
+  log "0" "" "###### HANDLE WRITER NODES ######"
   update_writers "${reload_check_file}"
   number_writers_online=$(proxysql_exec $LINENO -Ns "SELECT count(*) FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_WRITER_ID AND status = 'ONLINE' AND comment <> 'SLAVEREAD'" 2>>${ERR_FILE})
   check_cmd_and_exit $LINENO $? "Could not get node count (query failed). Exiting."
@@ -2656,7 +2656,7 @@ function main() {
 
 
   if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
-    log "" "###### HANDLE READER NODES ######"
+    log "0" "" "###### HANDLE READER NODES ######"
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
     update_readers "${reload_check_file}"
@@ -2692,16 +2692,16 @@ function main() {
   fi
 
 
-  log "" "###### SUMMARY ######"
-  log "" "--> Number of writers that are 'ONLINE': ${number_writers_online} : hostgroup: ${HOSTGROUP_WRITER_ID}"
-  [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "" "--> Number of readers that are 'ONLINE': ${number_readers_online} : hostgroup: ${HOSTGROUP_READER_ID}"
+  log "0" "" "###### SUMMARY ######"
+  log "0" "" "--> Number of writers that are 'ONLINE': ${number_writers_online} : hostgroup: ${HOSTGROUP_WRITER_ID}"
+  [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "0" "" "--> Number of readers that are 'ONLINE': ${number_readers_online} : hostgroup: ${HOSTGROUP_READER_ID}"
 
 
   # We don't have any writers... alert, try to bring some online!
   # This includes bringing a DONOR online
   if [[ ${number_writers_online} -eq 0 ]]; then
-    log "" "###### TRYING TO FIX MISSING WRITERS ######"
-    log "" "No writers found, Trying to enable last available node of the cluster (in Donor/Desync state)"
+    log "0" "" "###### TRYING TO FIX MISSING WRITERS ######"
+    log "0" "" "No writers found, Trying to enable last available node of the cluster (in Donor/Desync state)"
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
     search_for_desynced_writers "${reload_check_file}"
@@ -2716,8 +2716,8 @@ function main() {
 
   # We don't have any readers... alert, try to bring some online!
   if [[  ${HOSTGROUP_READER_ID} -ne -1 && ${number_readers_online} -eq 0 ]]; then
-    log "" "###### TRYING TO FIX MISSING READERS ######"
-    log "" "--> No readers found, Trying to enable last available node of the cluster (in Donor/Desync state) or pick the master"
+    log "0" "" "###### TRYING TO FIX MISSING READERS ######"
+    log "0" "" "--> No readers found, Trying to enable last available node of the cluster (in Donor/Desync state) or pick the master"
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
     search_for_desynced_readers "${reload_check_file}"
@@ -2770,8 +2770,8 @@ function main() {
       fi
     done< <(printf "$query_result\n")
 
-    log "" "--> Number of slave writers that are 'ONLINE': ${num_slave_writers} : hostgroup: ${HOSTGROUP_WRITER_ID}"
-    [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "" "--> Number of slave readers that are 'ONLINE': ${num_slave_readers} : hostgroup: ${HOSTGROUP_READER_ID}"
+    log "0" "" "--> Number of slave writers that are 'ONLINE': ${num_slave_writers} : hostgroup: ${HOSTGROUP_WRITER_ID}"
+    [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "0" "" "--> Number of slave readers that are 'ONLINE': ${num_slave_readers} : hostgroup: ${HOSTGROUP_READER_ID}"
 
     restore_reload_check "${reload_check_file}" $save_reload_state
   fi
@@ -2784,11 +2784,11 @@ function main() {
   fi
 
   if [[ $(cat ${reload_check_file}) -ne 0 ]] ; then
-      log "" "###### Loading mysql_servers config into runtime ######"
+      log "0" "" "###### Loading mysql_servers config into runtime ######"
       proxysql_exec $LINENO -Ns "LOAD MYSQL SERVERS TO RUNTIME;" 2>>${ERR_FILE}
       check_cmd_and_exit $LINENO $? "Could not update the mysql_servers table in ProxySQL. Exiting."
   else
-      log "" "###### Not loading mysql_servers, no change needed ######"
+      log "0" "" "###### Not loading mysql_servers, no change needed ######"
   fi
 }
 
@@ -2928,8 +2928,8 @@ arguments_validation
 main
 
 elapsed_time=$( date +%s.%N --date="$start_time seconds ago" )
-log "" "###### Total execution time ######"
-log "" "elapsed_time: $elapsed_time";
+log "2" "" "###### Total execution time ######"
+log "2" "" "elapsed_time: $elapsed_time";
 
 
 exit 0
