@@ -657,7 +657,7 @@ function parse_args2(){
   local opt=""
   local opts=""
 
-  opts="$(getopt --name "$(basename "$0")"  --options w:r:c:l:n:m:p:vhd  -l write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,max-connections:,version,debug,help -- $@)"
+  opts="$(getopt --name "$(basename "$0")"  --options w:r:c:l:n:m:p:vhd  -l write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,max-connections:,verbose:,version,debug,help -- $@)"
 
  if [[ $? -ne 0 ]];then
     echo "Invalid option provided $my_args"
@@ -738,6 +738,11 @@ function parse_args2(){
           #shift
           MAX_CONNECTIONS="$2"
           log $LINENO "max-connections = $MAX_CONNECTIONS"
+        ;;
+        --verbose )
+          #shift
+          VERBOSE="$2"
+          log $LINENO "verbose = $VERBOSE"
         ;;
         -v|--version )
           echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
