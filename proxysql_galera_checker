@@ -2908,7 +2908,7 @@ for arg in $my_args
         break
         ;;
       -c* )
-          echo"ERROR config file must be defined by long option --config-file"
+          echo "ERROR config file must be defined by long option --config-file"
           exit 1
         ;;
       --log=* )
