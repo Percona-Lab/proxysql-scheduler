@@ -192,6 +192,10 @@ Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filen
 
 
 Options:
+  --config-file=PATH              Specify ProxySQL-admin configuration file.
+  NOTE: --config-file MUST be the first parameter and use long option format
+  
+  ---------------------------------------------------------------------------
   -w, --write-hg=<NUMBER>             Specify ProxySQL write hostgroup.
   -r, --read-hg=<NUMBER>              Specify ProxySQL read hostgroup.
   -c, --config-file=PATH              Specify ProxySQL-admin configuration file.
@@ -680,7 +684,11 @@ function parse_args2(){
           HOSTGROUP_READER_ID=$2
           log "0" "$LINENO" "read-hg = $HOSTGROUP_READER_ID"
         ;;
-        -c|--config-file )
+        -c )
+          log "2" "$LINENO" "ERROR config file must be defined by long option --config-file"
+          exit 1
+        ;;
+        --config-file )
           log "0" "$LINENO" "config-file = $CONFIG_FILE"
         ;;
         -l|--log )
@@ -2522,8 +2530,15 @@ function main() {
         else
           my_path=$(echo ${PROXYSQL_DATADIR}/${cluster_name}_proxysql_galera_check.log | sed  's#\/#\\\/#g')
           arg1=$(echo $arg1 | sed "s/--log=.*/--log=$my_path/g")
-#I remove the log name replacement because if that is defined by the user at it should then no replacement should happen 
-          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
+
+          #if arg1 is not starting with -- then we had removed it given fprint bug. and we need ot add it back
+          if [[ "$arg1" =~ ^\-\-.* ]]; then
+               debug "Nothing to change in the arg1 prefix"
+             else
+                arg1="--${arg1}"
+          fi
+
+          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name', arg1='$arg1' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
           check_cmd_and_exit $LINENO $? "Could not update scheduler from (query failed). Exiting."
         fi
       fi
@@ -2891,6 +2906,10 @@ for arg in $my_args
         CONFIG_FILE=$(echo "$arg"|awk -F '=' '{print $2}')
         #echo $CONFIG_FILE
         break
+        ;;
+      -c* )
+          echo"ERROR config file must be defined by long option --config-file"
+          exit 1
         ;;
       --log=* )
         ERR_FILE=$(echo "$arg"|awk -F '=' '{print $2}')
