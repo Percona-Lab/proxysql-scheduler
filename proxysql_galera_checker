@@ -1669,10 +1669,10 @@ echo "AAAAAAAAAAAAAAAA $read_only"
       wsrep_status="<unknown:query failed>"
     fi
 
-    ## Check for a change in readonly in the writers
-    #if [[ "${read_only}" != "OFF" || "${super_read_only}" != "OFF" ]]; then
-    #    wsrep_status=0 
-    #fi
+    # Check for a change in readonly in the writers
+    if [[ "${read_only}" != "OFF" || "${super_read_only}" != "OFF" ]]; then
+        wsrep_status=0 
+    fi
 
     
     # For PXC 5.6 there is no pxc_maint_mode, so assume DISABLED
