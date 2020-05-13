@@ -1378,7 +1378,7 @@ function ensure_one_writer_node() {
     local result
     local address
     address=$(combine_ip_port_into_address "$host" "$port")
-    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1657,11 +1657,11 @@ function update_writers() {
     local read_only
     
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
     wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
-    read_only=$(echo "$result" | grep "read_only" | awk '{ print $2 }')
+    read_only=$(echo "$result" | grep "^read_only" | awk '{ print $2 }')
 echo "AAAAAAAAAAAAAAAA $read_only"
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
@@ -1965,7 +1965,7 @@ function update_readers() {
     local result
     local address
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
     wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
@@ -2107,7 +2107,7 @@ function search_for_desynced_writers() {
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
         wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
@@ -2231,8 +2231,8 @@ function search_for_desynced_readers() {
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-        wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
         wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
