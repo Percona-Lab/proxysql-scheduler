@@ -2231,6 +2231,7 @@ function search_for_desynced_readers() {
         result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+        wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
         if [[ -z $wsrep_status ]]; then
           wsrep_status="<unknown:query failed>"
@@ -2245,6 +2246,12 @@ function search_for_desynced_readers() {
         if [[ $pxc_main_mode != "DISABLED" ]]; then
           log "0" "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
+        fi
+
+        #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+        #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+        if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+            wsrep_status=1 
         fi
 
         log "0" "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
