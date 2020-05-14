@@ -1378,7 +1378,7 @@ function ensure_one_writer_node() {
     local result
     local address
     address=$(combine_ip_port_into_address "$host" "$port")
-    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1654,25 +1654,37 @@ function update_writers() {
     local pxc_main_mode
     local result
     local address
+    local read_only
+    local super_read_only
+    
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
     wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
+    read_only=$(echo "$result" | grep "^read_only" | awk '{ print $2 }')
+    super_read_only=$(echo "$result" | grep "^super_read_only" | awk '{ print $2 }')
 
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
     fi
 
+    # Check for a change in readonly in the writers
+    if [[ "${read_only}" != "OFF" || "${super_read_only}" != "OFF" ]]; then
+        wsrep_status=0 
+    fi
+
+    
     # For PXC 5.6 there is no pxc_maint_mode, so assume DISABLED
     if [[ -z $pxc_main_mode ]]; then
       pxc_main_mode="DISABLED"
     fi
 
+    
     #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
     #We simply set the status to wsrep_status = 2 and let the script remove it as IF
     if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
-        wsrep_status=2 
+        wsrep_status=0 
     fi
 
 
@@ -1962,7 +1974,7 @@ function update_readers() {
     local result
     local address
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
     wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
@@ -1979,7 +1991,7 @@ function update_readers() {
     #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
     #We simply set the status to wsrep_status = 2 and let the script remove it as IF
     if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
-        wsrep_status=2 
+        wsrep_status=0
     fi
 
     log "0" "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
@@ -2104,11 +2116,12 @@ function search_for_desynced_writers() {
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_%'; SHOW VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
         wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
+        
         if [[ -z $wsrep_status ]]; then
           wsrep_status="<unknown:query failed>"
         fi
@@ -2118,10 +2131,11 @@ function search_for_desynced_writers() {
           pxc_main_mode="DISABLED"
         fi
 
+       
         #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
         #We simply set the status to wsrep_status = 2 and let the script remove it as IF
         if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
-            wsrep_status=1 
+            wsrep_status=0 
         fi
         
         # Nodes in maintenance are not allowed
@@ -2228,9 +2242,10 @@ function search_for_desynced_readers() {
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-        wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+        wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
         if [[ -z $wsrep_status ]]; then
           wsrep_status="<unknown:query failed>"
@@ -2241,11 +2256,18 @@ function search_for_desynced_readers() {
           pxc_main_mode="DISABLED"
         fi
 
+        #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+        #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+        if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+            wsrep_status=0 
+        fi
+
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
           log "0" "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
+
 
         log "0" "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ];then
