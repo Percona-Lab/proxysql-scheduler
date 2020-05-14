@@ -1664,7 +1664,7 @@ function update_writers() {
     wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
     read_only=$(echo "$result" | grep "^read_only" | awk '{ print $2 }')
     super_read_only=$(echo "$result" | grep "^super_read_only" | awk '{ print $2 }')
-echo "AAAAAAAAAAAAAAAA $read_only"
+
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
     fi
