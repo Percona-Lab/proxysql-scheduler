@@ -31,7 +31,7 @@ interval_ms: 3000
 ```
 We strongly advice to test first the configuration on a test environment and to add the instruction in production with `ACTIVE=0` and after activate it: `update scheduler set active =1 where id=10;Load scheduler to run;`
 
-It is also Best Practice to keep the scheduler with `ACTIVE = 0` when doing `SAVE scheduler to DISK`. Such that it will NOT be activated bu default. 
+It is also Best Practice to keep the scheduler with `ACTIVE = 0` when doing `SAVE scheduler to DISK`. Such that it will NOT be activated by default. 
 
 ```
 Options:
