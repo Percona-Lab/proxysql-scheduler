@@ -14,8 +14,25 @@ Galera checker usage
 Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
 
 Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=--priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
+```
+Record will looks like this:
+```
+id: 50
+     active: 0
+interval_ms: 3000
+   filename: /opt/tools/proxysql-admin-tool/proxysql_galera_checker
+       arg1: --config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=--priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
+       arg2: NULL
+       arg3: NULL
+       arg4: NULL
+       arg5: NULL
+    comment: 
+1 row in set (0.01 sec)
+```
+We strongly advice to test first the configuration on a test environment and to add the instruction in production with `ACTIVE=0` and after activate it: `update scheduler set active =1 where id=10;Load scheduler to run;`
 
 
+```
 Options:
   --config-file=PATH              Specify ProxySQL-admin configuration file.
   NOTE: --config-file MUST be the first parameter and use long option format
@@ -64,18 +81,4 @@ When no nodes were found to be in wsrep_local_state=4 (SYNCED) for either
 read or write nodes, then the script will try 5 times for each node to try
 to find nodes wsrep_local_state=4 (SYNCED) or wsrep_local_state=2 (DONOR/DESYNC)
 ```
-mysql> select * from scheduler\G
-*************************** 1. row ***************************
-         id: 11
-     active: 1
-interval_ms: 5000
-   filename: /bin/proxysql_galera_checker
-       arg1: 10
-       arg2: 11
-       arg3: 1
-       arg4: 1
-       arg5: /var/lib/proxysql/cluster_one_proxysql_galera_check.log
-    comment: cluster_one
-```
 
-You can also use galera checker script with custom PXC proxysql configurations. But there are some limitations to this configuration.
