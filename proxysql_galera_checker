@@ -18,8 +18,8 @@ set -o nounset    # no undefined variables
 # Script parameters/constants
 #
 declare  -i DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.14"
-
+readonly    PROXYSQL_ADMIN_VERSION="1.4.16"
+declare     VERBOSE=0
 #Timeout exists for instances where mysqld may be hung
 declare  -i TIMEOUT=10
 
@@ -82,17 +82,22 @@ declare     MAX_CONNECTIONS=1000
 #
 
 function log() {
-  local lineno=$1
+  local log_level=$1
+  local lineno=$2
   shift
-
-  if [[ -n $ERR_FILE ]]; then
-    if [[ -n $lineno && $DEBUG -ne 0 ]]; then
-      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ (line $lineno) $*" >> $ERR_FILE
-    else
-      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
+  if [[ $VERBOSE -eq 1 ]]; then
+    if [[ -n $ERR_FILE ]]; then
+      if [[ -n $lineno && $DEBUG -ne 0 ]]; then
+        echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ (line $lineno) $*" >> $ERR_FILE
+      else
+        echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
+      fi
     fi
+  elif [[ $VERBOSE -eq 0 && log_level -gt 1 ]]; then
+        echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
   fi
 }
+  
 
 # Checks the return value of the most recent command
 #
@@ -113,7 +118,7 @@ function check_cmd() {
   if [[ ${retcode} -ne 0 ]]; then
     error "$lineno" $errmsg
     if [[ -n "$*" ]]; then
-      log "$lineno" $*
+      log "0" "$LINENO" $*
     fi
   fi
   return $retcode
@@ -148,7 +153,7 @@ function log_if_success() {
   shift 2
 
   if [[ $rc -eq 0 ]]; then
-    log "$lineno" "$*"
+    log "0" "$LINENO" "$*"
   fi
   return $rc
 }
@@ -157,14 +162,14 @@ function error() {
   local lineno=$1
   shift
 
-  log "$lineno" "proxysql_galera_checker : Error ($lineno): $*"
+  log "0" "$LINENO" "proxysql_galera_checker : Error ($lineno): $*"
 }
 
 function warning() {
   local lineno=$1
   shift
 
-  log "$lineno" "Warning: $*"
+  log "0" "$LINENO" "Warning: $*"
 }
 
 function debug() {
@@ -175,18 +180,25 @@ function debug() {
   local lineno=$1
   shift
 
-  log "$lineno" "${RED}debug: $*${NRED}"
+  log "0" "$LINENO" "${RED}debug: $*${NRED}"
 }
 
 function usage() {
   local path=$0
   cat << EOF
-Usage: ${path##*/} --write-hg=10 --read-hg=11 --config-file=/etc/proxysql-admin.cnf --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
+Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
+
+Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=--priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
+
 
 Options:
+  --config-file=PATH              Specify ProxySQL-admin configuration file.
+  NOTE: --config-file MUST be the first parameter and use long option format
+  
+  ---------------------------------------------------------------------------
+  -c, --config-file=PATH              Specify ProxySQL-admin configuration file. !! Note this MUST be the first argument you pass !!
   -w, --write-hg=<NUMBER>             Specify ProxySQL write hostgroup.
   -r, --read-hg=<NUMBER>              Specify ProxySQL read hostgroup.
-  -c, --config-file=PATH              Specify ProxySQL-admin configuration file.
   -l, --log=PATH                      Specify proxysql_galera_checker log file.
   --log-text=TEXT                     This is text that will be written to the log file
                                       whenever this script is run (useful for debugging).
@@ -321,7 +333,7 @@ function exec_sql() {
   debug "$lineno" "exec_sql : $user@$hostname:$port ($args) ==> $query"
 
   retoutput=$(printf "[client]\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
-      | timeout ${timeout_secs} mysql --defaults-file=/dev/stdin --protocol=tcp \
+      | timeout ${timeout_secs} mysql --defaults-file=/dev/stdin -Nns --protocol=tcp \
               ${args} -e "$query")
   retvalue=$?
 
@@ -350,6 +362,8 @@ function exec_sql() {
       done
     fi
   fi
+  
+  retoutput=$(sed -e 's/^--//'  <<<"$retoutput")
   printf "${retoutput//%/%%}"
   return $retvalue
 }
@@ -504,11 +518,11 @@ function combine_ip_port_into_address()
 # Arguments:
 #   None
 function upgrade_scheduler(){
-  log $LINENO "**** Scheduler upgrade started ****"
-  if [[ -f /etc/proxysql-admin.cnf ]]; then
-    source /etc/proxysql-admin.cnf
+  log "0" "$LINENO" "**** Scheduler upgrade started ****"
+  if [[ -f $CONFIG_FILE ]]; then
+    source $CONFIG_FILE
   else
-    error $LINENO "Assert! proxysql-admin configuration file : /etc/proxysql-admin.cnf does not exist, Terminating!"
+    error $LINENO "Assert! proxysql-admin configuration file : ${CONFIG_FILE} does not exist, Terminating!"
     exit 1
   fi
 
@@ -536,7 +550,7 @@ function upgrade_scheduler(){
     local s_cluster_name=$(echo "$i" | awk '{print $10}')
     local s_mode=""
 
-    log $LINENO "Modifying the scheduler for write hostgroup: $s_write_hg"
+    log "0" "$LINENO" "Modifying the scheduler for write hostgroup: $s_write_hg"
 
     # Get the mode for this cluster
     local proxysql_mode_file
@@ -549,12 +563,12 @@ function upgrade_scheduler(){
     if [[ -f ${proxysql_mode_file} && -r ${proxysql_mode_file} ]] ; then
       s_mode=$(cat ${proxysql_mode_file})
     else
-      log $LINENO ".. Cannot find the ${proxysql_mode_file} file"
+      log "0" "$LINENO" ".. Cannot find the ${proxysql_mode_file} file"
       if [[ $s_read_hg == "-1" ]]; then
-        log $LINENO ".. Assuming mode='loadbal'"
+        log "0" "$LINENO" ".. Assuming mode='loadbal'"
         s_mode="loadbal"
       else
-        log $LINENO ".. Assuming mode='singlewrite'"
+        log "0" "$LINENO" ".. Assuming mode='singlewrite'"
         s_mode="singlewrite"
       fi
     fi
@@ -580,7 +594,7 @@ function upgrade_scheduler(){
 
     # Make the changes
     if [[ ! -z $s_write_hg ]] && [[ ! -z $s_read_hg ]] && [[ ! -z $s_number_of_writes ]] && [[ ! -z $s_log ]]; then
-      proxysql_exec $LINENO -Ns "UPDATE scheduler SET arg1='--config-file=/etc/proxysql-admin.cnf --writer-is-reader=ondemand --write-hg=$s_write_hg --read-hg=$s_read_hg --writer-count=$s_number_of_writes $s_host_priority --mode=$s_mode --log=$s_log', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$id"
+      proxysql_exec $LINENO -Ns "UPDATE scheduler SET arg1='--config-file=${CONFIG_FILE} --writer-is-reader=ondemand --write-hg=$s_write_hg --read-hg=$s_read_hg --writer-count=$s_number_of_writes $s_host_priority --mode=$s_mode --log=$s_log', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$id"
       check_cmd_and_exit $LINENO $? "Could not update the scheduler (query failed). Exiting."
       rows_modified+=1
     fi
@@ -592,8 +606,8 @@ function upgrade_scheduler(){
     log_if_success $LINENO $? "Scheduler changes saved to runtime and disk"
   fi
 
-  log $LINENO "$rows_modified row(s) modified / $rows_found row(s) found"
-  log $LINENO "**** Scheduler upgrade finished ****"
+  log "0" "$LINENO" "$rows_modified row(s) modified / $rows_found row(s) found"
+  log "0" "$LINENO" "**** Scheduler upgrade finished ****"
 }
 
 
@@ -624,20 +638,230 @@ function change_server_status() {
 
   address=$(combine_ip_port_into_address "$server" "$port")
 
-  # If we have a PRIORITY_NODE, then we don't have a WRITER entry
-  # to upgrade, but we do have a READER entry, so upgrade that
-  if [[ $reader_status == "PRIORITY_NODE" ]]; then
+  # If we already have a row, upgrade the data
+  # Otherwise, create a new row
+  local row_count
+  row_count=$(proxysql_exec $LINENO -Ns "SELECT count(*) FROM mysql_servers WHERE hostgroup_id=$hostgroup AND hostname='$server' AND port=$port")
+  check_cmd_and_exit $LINENO $? "Could not check if row exists (query failed). Exiting."
+
+  if [[ $row_count -eq 0 ]]; then
     proxysql_exec $lineno -Ns "INSERT INTO mysql_servers
           (hostname,hostgroup_id,port,weight,status,comment,max_connections)
           VALUES ('$server',$hostgroup,$port,1000000,'$status','WRITE',$MAX_CONNECTIONS);"
     check_cmd_and_exit $LINENO $? "Could not create new mysql_servers row (query failed). Exiting."
-    log "$lineno" "Adding server $hostgroup:$address with status $status. Reason: $comment"
+    log "0" "$LINENO" "Adding server $hostgroup:$address with status $status. Reason: $comment"
   else
     proxysql_exec $lineno -Ns "UPDATE mysql_servers
           set status = '$status' WHERE hostgroup_id = $hostgroup AND hostname = '$server' AND port = $port;" 2>>${ERR_FILE}
     check_cmd_and_exit $LINENO $? "Could not update new mysql_servers row (query failed). Exiting."
-    log "$lineno" "Changing server $hostgroup:$address to status $status. Reason: $comment"
+    log "0" "$LINENO" "Changing server $hostgroup:$address to status $status. Reason: $comment"
   fi
+}
+
+# Arguments:
+#   The arguments to the script.
+#
+function parse_args2(){
+  local opt=""
+  local opts=""
+
+  opts="$(getopt --name "$(basename "$0")"  --options w:r:c:l:n:m:p:vhd  -l write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,max-connections:,verbose:,version,debug,help -- $@)"
+
+ if [[ $? -ne 0 ]];then
+    echo "Invalid option provided $my_args"
+ fi
+ eval set -- "$opts"
+ for opt
+  do
+    case "$opt" in
+        -w|--write-hg )
+          #shift
+          HOSTGROUP_WRITER_ID=$2
+          log "0" "$LINENO" "write-hg = $HOSTGROUP_WRITER_ID"
+        ;;
+        -r|--read-hg )
+          #shift
+          HOSTGROUP_READER_ID=$2
+          log "0" "$LINENO" "read-hg = $HOSTGROUP_READER_ID"
+        ;;
+        -c )
+          log "2" "$LINENO" "ERROR config file must be defined by long option --config-file"
+          exit 1
+        ;;
+        --config-file )
+          log "0" "$LINENO" "config-file = $CONFIG_FILE"
+        ;;
+        -l|--log )
+          #shift
+          ERR_FILE="$2"
+          log "0" "$LINENO" "log = $ERR_FILE"
+          # Test if stderr is open to a terminal
+          # We cannot use stdout as the log output, since it is used
+          # to return values.
+          if [[ $ERR_FILE == "/dev/stderr" ]]; then
+            RED=$(tput setaf 1)
+            NRED=$(tput sgr0)
+          else
+            RED=""
+            NRED=""
+          fi
+        ;;
+        --log-text )
+          #shift
+          LOG_TEXT="$2"
+          log "0" "$LINENO" "log-text = $LOG_TEXT"
+        ;;
+        --node-monitor-log )
+          #shift
+          NODE_MONITOR_LOG_FILE="$2"
+          log "0" "$LINENO" "node-monitor-log = $NODE_MONITOR_LOG_FILE"
+        ;;
+        -n|--writer-count )
+          #shift
+          NUMBER_WRITERS=$2
+          log "0" "$LINENO" "writer-count = $NUMBER_WRITERS"
+        ;;
+        -m|--mode )
+          #shift
+          P_MODE="$2"
+          if [ "$P_MODE" != "loadbal" ] && [ "$P_MODE" != "singlewrite" ]; then
+            echo "ERROR: Invalid --mode passed:"
+            echo "  Please choose one of these modes: loadbal, singlewrite"
+            exit 1
+          fi
+          log "0" "$LINENO" "mode = $P_MODE"
+        ;;
+        -p|--priority )
+          #shift
+          P_PRIORITY="$2"
+          log "0" "$LINENO" "priority = $P_PRIORITY"
+        ;;
+        --writer-is-reader )
+          #shift
+          WRITER_IS_READER="$2"
+          log "0" "$LINENO" "writer-is-reader = $WRITER_IS_READER"
+        ;;
+        --use-slave-as-writer )
+          #shift
+          SLAVE_IS_WRITER="$2"
+          log "0" "$LINENO" "use-slave-as-writer = $SLAVE_IS_WRITER"
+        ;;
+        --max-connections )
+          #shift
+          MAX_CONNECTIONS="$2"
+          log "0" "$LINENO" "max-connections = $MAX_CONNECTIONS"
+        ;;
+        --verbose )
+          #shift
+          VERBOSE="$2"
+          log "0" "$LINENO" "verbose = $VERBOSE"
+        ;;
+        -v|--version )
+          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
+          exit 0
+        ;;
+        -h|--help )
+          usage
+          exit 0
+        ;;
+        -d|--debug )
+          DEBUG=1
+        ;;
+      \? )
+        echo "Invalid option: $OPTARG" 1>&2
+        ;;
+      : )
+        echo "Invalid option: $OPTARG requires an argument" 1>&2
+        ;;
+    esac
+    shift
+  done
+
+  
+}
+
+function arguments_validation(){
+    #
+  # Argument validation
+  #
+  test $HOSTGROUP_WRITER_ID -ge 0 &>/dev/null
+  if [[ $? -ne 0 ]]; then
+    echo "ERROR: writer hostgroup_id is not an integer"
+    usage
+    exit 1
+  fi
+
+  test $HOSTGROUP_READER_ID -ge -1 &>/dev/null
+  if [[ $? -ne 0 ]]; then
+    echo "ERROR: reader hostgroup_id is not an integer"
+    usage
+    exit 1
+  fi
+
+  HOSTGROUP_SLAVEREADER_ID=$HOSTGROUP_READER_ID
+  if [ $HOSTGROUP_SLAVEREADER_ID -eq $HOSTGROUP_WRITER_ID ];then
+    echo "WARNING: reader hostgroup and writer hostgroup cannot have same ID value. Incrementing reader by 1"
+    let HOSTGROUP_SLAVEREADER_ID+=1
+  fi
+
+  if [[ $NUMBER_WRITERS -lt 0 ]]; then
+    echo "ERROR: The number of writers should either be 0 to enable all possible nodes ONLINE"
+    echo "       or be larger than 0 to limit the number of writers"
+    usage
+    exit 1
+  fi
+
+  if [[ ! $WRITER_IS_READER =~ ^(always|never|ondemand)$ ]]; then
+    error "" "Invalid --writer-is-reader option: '$WRITER_IS_READER'"
+    echo "Please choose one of these values: always, never, or ondemand"
+    exit 1
+  fi
+
+  if [[ ! $SLAVE_IS_WRITER =~ ^(yes|YES|no|NO)$ ]]; then
+    error "" "Invalid --use-slave-as-writer option: '$SLAVE_IS_WRITER'"
+    echo "Please choose either yes or no"
+    exit 1
+  fi
+  if [[ $SLAVE_IS_WRITER =~ ^(yes|YES)$ ]]; then
+    SLAVE_IS_WRITER="yes"
+  else
+    SLAVE_IS_WRITER="no"
+  fi
+
+  # These may get set in the config file, but they are not used
+  # by this script.  So to avoid confusion and problems, remove
+  # these variables explicitly.
+  unset WRITE_HOSTGROUP_ID
+  unset READ_HOSTGROUP_ID
+  unset SLAVEREAD_HOSTGROUP_ID
+
+
+  # Verify that we have an integer
+  if [[ -n $MAX_CONNECTIONS ]]; then
+    if ! [ "$MAX_CONNECTIONS" -eq "$MAX_CONNECTIONS" ] 2>/dev/null
+    then
+      error "" "option '--max-connections' parameter (must be a number) : $MAX_CONNECTIONS"
+      exit 1
+    fi
+  fi
+
+  readonly ERR_FILE
+  readonly CONFIG_FILE
+  readonly DEBUG_ERR_FILE
+
+  readonly HOSTGROUP_WRITER_ID
+  readonly HOSTGROUP_READER_ID
+  readonly HOSTGROUP_SLAVEREADER_ID
+  readonly NUMBER_WRITERS
+
+  readonly WRITER_IS_READER
+  readonly SLAVE_IS_WRITER
+
+  readonly P_PRIORITY
+  readonly P_MODE
+
+  readonly MAX_CONNECTIONS
+  
 }
 
 
@@ -678,6 +902,7 @@ function parse_args() {
       --config-file )
         CONFIG_FILE="$2"
         check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file"
+        echo $CONFIG_FILE
         debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
         shift 2
         ;;
@@ -919,7 +1144,7 @@ function check_is_galera_checker_running() {
     if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check >/dev/null 2>&1 ; then
       ps -p $GPID > /dev/null 2>&1
       if [[ $? -eq 0 ]]; then
-        log "$LINENO" "ProxySQL galera checker process already running. (pid:$GPID  this pid:$$)"
+        log "0" "$LINENO" "ProxySQL galera checker process already running. (pid:$GPID  this pid:$$)"
 
         # We don't want to remove this file on cleanup
         CHECKER_PIDFILE=""
@@ -1020,6 +1245,10 @@ function writer_is_reader_check() {
         else
           comment="OFFLINE_SOFT"
         fi
+        #before insert do a cleanup of possible leftover
+        proxysql_exec $LINENO -Ns "DELETE FROM mysql_servers where hostname='$server' AND hostgroup_id=$HOSTGROUP_READER_ID AND port=$port;"
+        check_cmd_and_exit $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to REMOVE/CLEANUP $HOSTGROUP_READER_ID:$address (query failed). Exiting."
+        
         proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections) VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'$comment','READ',$MAX_CONNECTIONS);"
         check_cmd_and_exit $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to add $HOSTGROUP_READER_ID:$address (query failed). Exiting."
         log_if_success $LINENO $? "writer-is-reader($WRITER_IS_READER): Adding reader $HOSTGROUP_READER_ID:$address with status OFFLINE_SOFT"
@@ -1040,9 +1269,9 @@ function writer_is_reader_check() {
       fi
     elif [[ $WRITER_IS_READER == "never" ]]; then
       #
-      # Ensure that there is NO corresponding entry in mysql_servers
+      # Ensure that there is NO corresponding ONLINE entry in mysql_servers
       #
-      if [[ $servers =~ $regex ]]; then
+      if [[ $stat == 'ONLINE' && $servers =~ $regex ]]; then
         # Delete the corresponding READER entry
         proxysql_exec $LINENO -Ns "DELETE FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_READER_ID and hostname='$server' and port=$port"
         check_cmd_and_exit $LINENO $? "writer-is-reader(never): Failed to remove $HOSTGROUP_READER_ID:$address (query failed). Exiting."
@@ -1102,7 +1331,7 @@ function find_online_cluster_host() {
 function ensure_one_writer_node() {
   local reload_check_file=$1
 
-  log $LINENO "No ONLINE writers found, looking for readers to promote"
+  log "0" "$LINENO" "No ONLINE writers found, looking for readers to promote"
 
   # We are trying to find a reader node that can be promoted to
   # a writer.
@@ -1119,19 +1348,21 @@ function ensure_one_writer_node() {
       AND writer.port = reader.port
     WHERE reader.hostgroup_id = $HOSTGROUP_READER_ID
       AND reader.status = 'ONLINE'
-      AND reader.comment = 'READ'
     ORDER BY writer.status ASC,
              reader.weight DESC,
              reader.hostname,
              reader.port"
 
+
   local possible_hosts
   possible_hosts=$(proxysql_exec $LINENO -Ns "$reader_proxysql_query")
   check_cmd_and_exit $LINENO $? "Could not get data from mysql_servers (query failed). Exiting."
   if [[ -z $possible_hosts ]]; then
-    log $LINENO "Cannot find a reader that can be promoted to a writer"
+    log "0" "$LINENO" "Cannot find a reader that can be promoted to a writer"
     return
   fi
+
+
 
   while read line; do
     if [[ -z $line ]]; then
@@ -1147,7 +1378,7 @@ function ensure_one_writer_node() {
     local result
     local address
     address=$(combine_ip_port_into_address "$host" "$port")
-    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
+    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1162,15 +1393,18 @@ function ensure_one_writer_node() {
     local write_stat=$(echo "$line" | awk '{print $3}')
     debug $LINENO "Looking at $address write_status:$write_stat"
 
-    log $LINENO "Promoting $address as writer node..."
+    log "0" "$LINENO" "Promoting $address as writer node..."
 
     # We have an ONLINE reader node
     # if ondemand or always keep the reader node (may need to move it to OFFLINE_SOFT)
     #   if we have a writer, move to ONLINE
     #   if no writer, create it
 
+
+
     if [[ $WRITER_IS_READER == "ondemand" || $WRITER_IS_READER == "always" ]]; then
-      if [[ -z $write_stat || $write_stat == "NULL" ]]; then
+      if [[ -z $write_stat || $write_stat == "NULL" || $write_stat=="OFFLINE_SOFT" ]]; then
+
         # Writer does not exist, add an ONLINE writer
         proxysql_exec $LINENO -Ns \
           "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections)
@@ -1362,7 +1596,6 @@ function update_writers() {
       AND reader.hostname = writer.hostname
       AND reader.port = writer.port
     WHERE writer.hostgroup_id = $HOSTGROUP_WRITER_ID
-      AND writer.status <> 'OFFLINE_HARD'
     ORDER BY writer.status DESC"
 
   proxysql_list=$(proxysql_exec $LINENO -Ns "$writer_proxysql_query")
@@ -1393,7 +1626,7 @@ function update_writers() {
   fi
 
   if [[ -z ${proxysql_list[@]+"${proxysql_list[@]}"} ]]; then
-    log $LINENO "No writers found."
+    log "0" "$LINENO" "No writers found."
     return
   fi
 
@@ -1417,22 +1650,43 @@ function update_writers() {
     fi
 
     local wsrep_status
+    local wsrep_reject_queries
     local pxc_main_mode
     local result
     local address
+    local read_only
+    local super_read_only
+    
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-    wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    wsrep_status=$(echo "$result" | grep "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+    wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
+    read_only=$(echo "$result" | grep "^read_only" | awk '{ print $2 }')
+    super_read_only=$(echo "$result" | grep "^super_read_only" | awk '{ print $2 }')
 
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
     fi
 
+    # Check for a change in readonly in the writers
+    if [[ "${read_only}" != "OFF" || "${super_read_only}" != "OFF" ]]; then
+        wsrep_status=0 
+    fi
+
+    
     # For PXC 5.6 there is no pxc_maint_mode, so assume DISABLED
     if [[ -z $pxc_main_mode ]]; then
       pxc_main_mode="DISABLED"
     fi
+
+    
+    #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+    #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+    if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+        wsrep_status=0 
+    fi
+
 
     # If this node was added because of the priority list and the
     # node is not reporting SYNCED, then just skip it
@@ -1440,7 +1694,7 @@ function update_writers() {
       continue
     fi
 
-    log "" "--> Checking WRITE server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
+    log "0" "" "--> Checking WRITE server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
 
     # we have to limit amount of writers, WSREP status OK, AND node is marked ONLINE
     # PXC and ProxySQL agreee on the status
@@ -1448,7 +1702,7 @@ function update_writers() {
     if [ $NUMBER_WRITERS -gt 0 -a "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
       if [[ $number_writers_online -lt $NUMBER_WRITERS ]]; then
         number_writers_online=$(( $number_writers_online + 1 ))
-        log "" "server $hostgroup:$address is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
+        log "0" "" "server $hostgroup:$address is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
       else
         number_writers_online=$(( $number_writers_online + 1 ))
         change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "$rdstat" \
@@ -1475,7 +1729,21 @@ function update_writers() {
                                  "max write nodes reached (${NUMBER_WRITERS})"
             echo "1" > ${reload_check_file}
           elif [[ $rdstat != "PRIORITY_NODE" ]]; then
-             log $LINENO "server $hostgroup:$address is already OFFLINE_SOFT, max write nodes reached (${NUMBER_WRITERS})"
+            log "0" "$LINENO" "server $hostgroup:$address is already OFFLINE_SOFT, max write nodes reached (${NUMBER_WRITERS})"
+
+            # If not there, add node as a reader
+            local reader_count=$(proxysql_exec $LINENO -Ns "SELECT count(*) FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_READER_ID AND hostname='$server' AND port=$port")
+            check_cmd_and_exit $LINENO $? "Could not get reader count (query failed). Exiting."
+            if [[ $reader_count -eq 0 ]]; then
+              proxysql_exec $LINENO -Ns \
+                "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections)
+                 VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'ONLINE','READ',$MAX_CONNECTIONS);"
+              check_cmd_and_exit $LINENO $? "Cannot add a PXC reader node to ProxySQL (query failed). Exiting."
+              log_if_success $LINENO $? "Added $HOSTGROUP_READER_ID:$address as a reader."
+              echo "1" > ${reload_check_file}
+            else
+              log "0" "$LINENO" "$hostgroup:$address already exists in $stat state"
+            fi
           fi
         fi
       # we do not have to limit
@@ -1500,10 +1768,10 @@ function update_writers() {
       echo "1" > ${reload_check_file}
     # wsrep:not ok  pxc:--  status:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
-      log "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
+      log "0" "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
     # wsrep:--  pxc:not ok  status:offline soft
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
-      log "" "server $hostgroup:$address is already OFFLINE_SOFT, pxc_maint_mode is ${pxc_main_mode} which is not ok"
+      log "0" "" "server $hostgroup:$address is already OFFLINE_SOFT, pxc_maint_mode is ${pxc_main_mode} which is not ok"
     fi
   done< <(printf "${proxysql_list[@]}\n")
 }
@@ -1537,7 +1805,7 @@ function set_slave_status() {
   # This function will get and return a status of a slave node, 4=GOOD, 2=BEHIND, 0=OTHER
   local slave_status
 
-  log $LINENO "--> Checking SLAVE server ${node_id}"
+  log "0" "$LINENO" "--> Checking SLAVE server ${node_id}"
 
   slave_status=$(mysql_exec $LINENO "$ws_ip" "$ws_port" -nsE "SHOW SLAVE STATUS")
   check_cmd $LINENO $? "Cannot get status from the slave $ws_address, Please check cluster login credentials"
@@ -1578,7 +1846,7 @@ function set_slave_status() {
         log_if_success $LINENO $? "slave server ${ws_address} set to OFFLINE_HARD status in ProxySQL (io:$slave_io_running sql:$slave_sql_running)."
         echo "1" > ${reload_check_file}
       else
-        log $LINENO "slave server (${ws_hg_id}:${ws_address}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
+        log "0" "$LINENO" "slave server (${ws_hg_id}:${ws_address}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
       fi
     elif [[ $slave_io_running == "Yes" ]]; then
       #
@@ -1593,7 +1861,7 @@ function set_slave_status() {
           log_if_success $LINENO $? "slave server ${ws_address} set to OFFLINE_SOFT status in ProxySQL (slave is too far behind:$seconds_behind). (io:$slave_io_running sql:$slave_sql_running)"
           echo "1" > ${reload_check_file}
         else
-          log $LINENO "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
+          log "0" "$LINENO" "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
         fi
       else
         #
@@ -1605,11 +1873,11 @@ function set_slave_status() {
           check_cmd_and_exit $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address in ProxySQL (query failed). Exiting."
           log_if_success $LINENO $? "slave server $HOSTGROUP_SLAVEREADER_ID:${ws_address} set to ONLINE status in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
           if [[ $ws_hg_id -ne $HOSTGROUP_SLAVEREADER_ID ]]; then
-            log $LINENO "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
+            log "0" "$LINENO" "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
           fi
           echo "1" > ${reload_check_file}
         else
-          log $LINENO "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
+          log "0" "$LINENO" "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
         fi
       fi
     else
@@ -1620,11 +1888,11 @@ function set_slave_status() {
       # So leave it ONLINE in this state.
       #
       if [[ $ws_status == "ONLINE" ]]; then
-        log $LINENO "slave server ${ws_address} status:'${ws_status}' maintained in case the cluster is down. (io:$slave_io_running sql:$slave_sql_running)"
+        log "0" "$LINENO" "slave server ${ws_address} status:'${ws_status}' maintained in case the cluster is down. (io:$slave_io_running sql:$slave_sql_running)"
       else
         proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status = 'OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port;"
         check_cmd_and_exit $LINENO $? "Unable to update mysql_servers (query failed). Exiting."
-        log $LINENO "slave server ${ws_address} status:'OFFLINE_SOFT'. (io:$slave_io_running sql:$slave_sql_running)"
+        log "0" "$LINENO" "slave server ${ws_address} status:'OFFLINE_SOFT'. (io:$slave_io_running sql:$slave_sql_running)"
         echo "1" > ${reload_check_file}
       fi
     fi
@@ -1701,13 +1969,15 @@ function update_readers() {
     fi
 
     local wsrep_status
+    local wsrep_reject_queries
     local pxc_main_mode
     local result
     local address
     address=$(combine_ip_port_into_address "$server" "$port")
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-    wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
+    wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+    wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }')
 
     if [[ -z $wsrep_status ]]; then
       wsrep_status="<unknown:query failed>"
@@ -1718,13 +1988,19 @@ function update_readers() {
       pxc_main_mode="DISABLED"
     fi
 
-    log "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
+    #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+    #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+    if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+        wsrep_status=0
+    fi
+
+    log "0" "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
 
     if [[ $WRITER_IS_READER == "ondemand" && $writer_stat == "ONLINE" ]] ; then
       if [ $online_readonly_nodes_found -eq 0 ] ; then
         # WSREP:ok  PXC:ok  STATUS:online
         if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-          log "" "server $hostgroup:$address is already ONLINE, is also write node in ONLINE state, not enough non-ONLINE readers found"
+          log "0" "" "server $hostgroup:$address is already ONLINE, is also write node in ONLINE state, not enough non-ONLINE readers found"
         fi
 
         # WSREP:ok  PXC:ok  STATUS:not online
@@ -1747,17 +2023,17 @@ function update_readers() {
         fi
         # WSREP:ok  PXC:ok  STATUS:not online
         if [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-          log "" "server $hostgroup:$address is $stat, keeping node as $stat,as it is an ONLINE writer and we prefer not to have writers as readers (writer-is-reader:ondemand)"
+          log "0" "" "server $hostgroup:$address is $stat, keeping node as $stat,as it is an ONLINE writer and we prefer not to have writers as readers (writer-is-reader:ondemand)"
         fi
       fi
     else
       # WSREP:ok  PXC:ok  STATUS:online
       if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-        log "" "server $hostgroup:$address is already ONLINE"
+        log "0" "" "server $hostgroup:$address is already ONLINE"
         online_readonly_nodes_found=$(( $online_readonly_nodes_found + 1 ))
       # WSREP:ok  PXC:not ok  STATUS:not online
       elif [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" != "DISABLED" ] ; then
-        log "" "server $hostgroup:$address is $stat"
+        log "0" "" "server $hostgroup:$address is $stat"
       fi
 
       # WSREP status OK, but node is not marked ONLINE
@@ -1783,7 +2059,7 @@ function update_readers() {
       echo "1" > ${reload_check_file}
     # WSREP:not ok  STATUS:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" ]; then
-      log "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
+      log "0" "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
     fi
   done< <(printf "$query_result\n")
 }
@@ -1802,6 +2078,7 @@ function search_for_desynced_writers() {
   local reload_check_file=$1
   local cnt=0
   local sort_order="ASC"
+  local exit_loop=0
 
   # We want the writers to come before the readers
   if [[ $HOSTGROUP_WRITER_ID -gt $HOSTGROUP_READER_ID ]]; then
@@ -1818,6 +2095,8 @@ function search_for_desynced_writers() {
   query_result=$(proxysql_exec $LINENO -Ns "$writer_query")
   check_cmd_and_exit $LINENO $? "Could not get the list of nodes (query failed). Exiting."
 
+
+
   while read line; do
     if [[ -z $line ]]; then
       continue
@@ -1827,20 +2106,22 @@ function search_for_desynced_writers() {
     server=$(echo "$line" | cut -f2)
     port=$(echo "$line" | cut -f3)
     stat=$(echo "$line" | cut -f4)
-
     safety_cnt=0
 
     while [ ${cnt} -lt $NUMBER_WRITERS -a ${safety_cnt} -lt 5 ]
       do
         local wsrep_status
+        local wsrep_reject_queries
         local pxc_main_mode
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-        wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_%'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+        wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
+        
         if [[ -z $wsrep_status ]]; then
           wsrep_status="<unknown:query failed>"
         fi
@@ -1850,13 +2131,20 @@ function search_for_desynced_writers() {
           pxc_main_mode="DISABLED"
         fi
 
+       
+        #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+        #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+        if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+            wsrep_status=0 
+        fi
+        
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
-          log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
+          log "0" "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
 
-        log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
+        log "0" "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ]; then
           # if we are on Donor/Desync and not online in mysql_servers -> proceed
 
@@ -1869,7 +2157,7 @@ function search_for_desynced_writers() {
               "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections)
                   VALUES ('$server',$HOSTGROUP_WRITER_ID,$port,1000000,'WRITE',$MAX_CONNECTIONS);"
             check_cmd_and_exit $LINENO $? "Could not add writer node (query failed). Exiting."
-            log $LINENO "Adding server $HOSTGROUP_WRITER_ID:$address with status ONLINE. Reason: WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
+            log "0" "$LINENO" "Adding server $HOSTGROUP_WRITER_ID:$address with status ONLINE. Reason: WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           else
             change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" ""\
                                  "WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
@@ -1900,9 +2188,23 @@ function search_for_desynced_writers() {
           # sense if all the nodes are already down).  If any of the nodes are
           # up, this node will be moved to OFFLINE_SOFT since it is not in
           # the SYNCED(4) state.
+
+        #This is to allow a node to be replaced when non operative fro, WSREP point of view
+        elif [ ${wsrep_status} -eq 1 ] && [ "$stat" = "OFFLINE_SOFT" ]; then
+  #        ensure_one_writer_node "${reload_check_file}"
+          echo "1" > ${reload_check_file}
+          safety_cnt=10
+          exit_loop=0
+
         fi
+        if [ $exit_loop -eq 1 ];then
+	   break
+	fi
         safety_cnt=$(( $safety_cnt + 1 ))
     done
+    if [ $exit_loop -eq 1 ];then
+         break
+    fi
   done< <(printf "$query_result\n")
 }
 
@@ -1940,9 +2242,10 @@ function search_for_desynced_readers() {
         local result
         local address
         address=$(combine_ip_port_into_address "$server" "$port")
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
-        wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW GLOBAL STATUS LIKE 'wsrep_local_state'; SHOW GLOBAL VARIABLES;" 2>>${DEBUG_ERR_FILE})
+        wsrep_status=$(echo "$result" | grep -e "wsrep_local_state.[0-9]" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
+        wsrep_reject_queries=$(echo "$result" | grep "wsrep_reject_queries" | awk '{ print $2 }') 
 
         if [[ -z $wsrep_status ]]; then
           wsrep_status="<unknown:query failed>"
@@ -1953,13 +2256,20 @@ function search_for_desynced_readers() {
           pxc_main_mode="DISABLED"
         fi
 
+        #FOR Any additional condition that may require to put OFFLINE_SOFT the node, to avoid modifying the code and break the logic
+        #We simply set the status to wsrep_status = 2 and let the script remove it as IF
+        if [[ "${wsrep_reject_queries}" != "NONE" ]]; then
+            wsrep_status=0 
+        fi
+
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
-          log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
+          log "0" "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
 
-        log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
+
+        log "0" "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ];then
           # if we are on Donor/Desync an not online in mysql_servers -> proceed
           change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
@@ -2090,7 +2400,7 @@ function add_slave_to_write_hostgroup() {
 
   # If there is an active slave writer node, no need to add another node
   if [[ $online_count -eq 1 ]]; then
-    log $LINENO "Async-slave already ONLINE"
+    log "0" "$LINENO" "Async-slave already ONLINE"
     return
   fi
 
@@ -2143,7 +2453,7 @@ function add_slave_to_write_hostgroup() {
       log_if_success $LINENO $? "slave server ${HOSTGROUP_WRITER_ID}:$address set to ONLINE status in ProxySQL."
       echo 1 > "${reload_check_file}"
     else
-      log $LINENO "Could not find any slave readers to promote to a writer"
+      log "0" "$LINENO" "Could not find any slave readers to promote to a writer"
     fi
   fi
 }
@@ -2159,7 +2469,7 @@ function add_slave_to_write_hostgroup() {
 #
 function remove_slave_from_write_hostgroup() {
   local reload_check_file=$1
-  log $LINENO "Removing async-slaves from the writegroup"
+  log "0" "$LINENO" "Removing async-slaves from the writegroup"
   # Move all writer slaves to OFFLINE_SOFT
   proxysql_exec $LINENO -Ns "UPDATE mysql_servers
                              SET status = 'OFFLINE_SOFT'
@@ -2232,8 +2542,9 @@ function main() {
       if [[ -z $scheduler_id ]]; then
         warning "$LINENO" "Cannot update scheduler due to missing scheduler_id"
       else
-        local arg1 my_path
-        log "$LINENO" "Updating scheduler for cluster:${cluster_name} write_hg:$HOSTGROUP_WRITER_ID"
+        local arg1=""
+        local my_path=""
+        log "0" "$LINENO" "Updating scheduler for cluster:${cluster_name} write_hg:$HOSTGROUP_WRITER_ID"
         arg1=$(proxysql_exec $LINENO -Ns "SELECT arg1 from scheduler where id=${scheduler_id}")
         check_cmd_and_exit $LINENO $? "Could not get arg1 from scheduler from (query failed)" "Please check ProxySQL credentials and status."
         if [[ -z $arg1 ]]; then
@@ -2242,7 +2553,14 @@ function main() {
           my_path=$(echo ${PROXYSQL_DATADIR}/${cluster_name}_proxysql_galera_check.log | sed  's#\/#\\\/#g')
           arg1=$(echo $arg1 | sed "s/--log=.*/--log=$my_path/g")
 
-          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name',arg1='$arg1' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
+          #if arg1 is not starting with -- then we had removed it given fprint bug. and we need ot add it back
+          if [[ "$arg1" =~ ^\-\-.* ]]; then
+               debug "Nothing to change in the arg1 prefix"
+             else
+                arg1="--${arg1}"
+          fi
+
+          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name', arg1='$arg1' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
           check_cmd_and_exit $LINENO $? "Could not update scheduler from (query failed). Exiting."
         fi
       fi
@@ -2289,7 +2607,7 @@ function main() {
     # Cannot find it in same directory, try default location
     monitor_dir="/usr/bin"
     if [[ ! -f $monitor_dir/proxysql_node_monitor ]]; then
-      log "" "ERROR! Could not find proxysql_node_monitor. Terminating"
+      log "0" "" "ERROR! Could not find proxysql_node_monitor. Terminating"
       exit 1
     fi
   fi
@@ -2334,18 +2652,18 @@ function main() {
                                      --log="$proxysql_monitor_log" $more_monitor_options
 
   # print information prior to a run if ${ERR_FILE} is defined
-  log "" "###### proxysql_galera_checker.sh SUMMARY ######"
-  log "" "Hostgroup writers $HOSTGROUP_WRITER_ID"
-  log "" "Hostgroup readers $HOSTGROUP_READER_ID"
-  log "" "Number of writers $NUMBER_WRITERS"
-  log "" "Writers are readers $WRITER_IS_READER"
-  log "" "Log file          $ERR_FILE"
-  log "" "Mode              $MODE"
+  log "0" "" "###### proxysql_galera_checker.sh SUMMARY ######"
+  log "0" "" "Hostgroup writers $HOSTGROUP_WRITER_ID"
+  log "0" "" "Hostgroup readers $HOSTGROUP_READER_ID"
+  log "0" "" "Number of writers $NUMBER_WRITERS"
+  log "0" "" "Writers are readers $WRITER_IS_READER"
+  log "0" "" "Log file          $ERR_FILE"
+  log "0" "" "Mode              $MODE"
   if [[ -n $P_PRIORITY ]]; then
-    log "" "Priority          $P_PRIORITY"
+    log "0" "" "Priority          $P_PRIORITY"
   fi
   if [[ -n $LOG_TEXT ]]; then
-    log "" "Extra notes       $LOG_TEXT"
+    log "0" "" "Extra notes       $LOG_TEXT"
   fi
 
   local number_readers_online=0
@@ -2353,7 +2671,7 @@ function main() {
   local save_reload_state=0
 
 
-  log "" "###### HANDLE WRITER NODES ######"
+  log "0" "" "###### HANDLE WRITER NODES ######"
   update_writers "${reload_check_file}"
   number_writers_online=$(proxysql_exec $LINENO -Ns "SELECT count(*) FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_WRITER_ID AND status = 'ONLINE' AND comment <> 'SLAVEREAD'" 2>>${ERR_FILE})
   check_cmd_and_exit $LINENO $? "Could not get node count (query failed). Exiting."
@@ -2375,7 +2693,7 @@ function main() {
 
 
   if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
-    log "" "###### HANDLE READER NODES ######"
+    log "0" "" "###### HANDLE READER NODES ######"
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
     update_readers "${reload_check_file}"
@@ -2411,16 +2729,16 @@ function main() {
   fi
 
 
-  log "" "###### SUMMARY ######"
-  log "" "--> Number of writers that are 'ONLINE': ${number_writers_online} : hostgroup: ${HOSTGROUP_WRITER_ID}"
-  [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "" "--> Number of readers that are 'ONLINE': ${number_readers_online} : hostgroup: ${HOSTGROUP_READER_ID}"
+  log "0" "" "###### SUMMARY ######"
+  log "0" "" "--> Number of writers that are 'ONLINE': ${number_writers_online} : hostgroup: ${HOSTGROUP_WRITER_ID}"
+  [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "0" "" "--> Number of readers that are 'ONLINE': ${number_readers_online} : hostgroup: ${HOSTGROUP_READER_ID}"
 
 
   # We don't have any writers... alert, try to bring some online!
   # This includes bringing a DONOR online
   if [[ ${number_writers_online} -eq 0 ]]; then
-    log "" "###### TRYING TO FIX MISSING WRITERS ######"
-    log "" "No writers found, Trying to enable last available node of the cluster (in Donor/Desync state)"
+    log "0" "" "###### TRYING TO FIX MISSING WRITERS ######"
+    log "0" "" "No writers found, Trying to enable last available node of the cluster (in Donor/Desync state)"
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
     search_for_desynced_writers "${reload_check_file}"
@@ -2435,8 +2753,8 @@ function main() {
 
   # We don't have any readers... alert, try to bring some online!
   if [[  ${HOSTGROUP_READER_ID} -ne -1 && ${number_readers_online} -eq 0 ]]; then
-    log "" "###### TRYING TO FIX MISSING READERS ######"
-    log "" "--> No readers found, Trying to enable last available node of the cluster (in Donor/Desync state) or pick the master"
+    log "0" "" "###### TRYING TO FIX MISSING READERS ######"
+    log "0" "" "--> No readers found, Trying to enable last available node of the cluster (in Donor/Desync state) or pick the master"
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
     search_for_desynced_readers "${reload_check_file}"
@@ -2452,7 +2770,7 @@ function main() {
   if [[ $HAVE_SLAVEREADERS -eq 1 ]]; then
     save_reload_state=$(save_reload_check "${reload_check_file}")
 
-    log $LINENO "###### ASYNC-SLAVE ACTIVITY ######"
+    log "0" "$LINENO" "###### ASYNC-SLAVE ACTIVITY ######"
 
     # If use-slave-as-writer is set, then we do not allow slaves to
     # be added, however we still call the remove slave writers
@@ -2489,21 +2807,31 @@ function main() {
       fi
     done< <(printf "$query_result\n")
 
-    log "" "--> Number of slave writers that are 'ONLINE': ${num_slave_writers} : hostgroup: ${HOSTGROUP_WRITER_ID}"
-    [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "" "--> Number of slave readers that are 'ONLINE': ${num_slave_readers} : hostgroup: ${HOSTGROUP_READER_ID}"
+    log "0" "" "--> Number of slave writers that are 'ONLINE': ${num_slave_writers} : hostgroup: ${HOSTGROUP_WRITER_ID}"
+    [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "0" "" "--> Number of slave readers that are 'ONLINE': ${num_slave_readers} : hostgroup: ${HOSTGROUP_READER_ID}"
 
     restore_reload_check "${reload_check_file}" $save_reload_state
   fi
 
+  if [[ $DEBUG -eq 1 ]]; then
+    debug "$LINENO" "#### Dumping mysql_servers table"
+    # ignore the output, since the debug logs will show the query results
+    x=$(proxysql_exec $LINENO "-t" "SELECT hostgroup_id,hostname,port,status,comment FROM mysql_servers ORDER BY hostgroup_id,hostname,port,status;")
+    debug '' "####"
+  fi
 
   if [[ $(cat ${reload_check_file}) -ne 0 ]] ; then
-      log "" "###### Loading mysql_servers config into runtime ######"
+      log "0" "" "###### Loading mysql_servers config into runtime ######"
       proxysql_exec $LINENO -Ns "LOAD MYSQL SERVERS TO RUNTIME;" 2>>${ERR_FILE}
       check_cmd_and_exit $LINENO $? "Could not update the mysql_servers table in ProxySQL. Exiting."
   else
-      log "" "###### Not loading mysql_servers, no change needed ######"
+      log "0" "" "###### Not loading mysql_servers, no change needed ######"
   fi
 }
+
+#
+
+
 
 
 #-------------------------------------------------------------------------------
@@ -2511,79 +2839,139 @@ function main() {
 # Step 4 : Begin script execution
 #
 
-#
-# In the initial version, ProxySQL has 5 slots for command-line arguments
-# and would send them separately (each enclosed in double quotes,
-# such as "arg1" "arg2" etc..).
-#
-# We now configure all parameters in the arg1 field (since we need more
-# than 5 arguments).  This means that we now receive all the arguments
-# in one parameter "arg1 arg2 arg3 arg4 arg5"
-#
-# This means that anytime this script is called with > 1 argument, we
-# assume that the old method is in use and we need to upgrade the script
-# to the new method (in upgrade_scheduler).
-#
 
-if [ "$#" -eq 1 ]; then
+#Preliminary checks
+#getopt is mandatory 
+getopt -V > /dev/null
+if [ $? -ne 0 ]; then
+  echo "Script require getopt. Please install if missing and re-run the script"
+  echo "The getopt command is part of the util-linux package and is available from Linux Kernel Archive "
+  exit
+fi
+
+#All parameters come from ARG1.
+if [ "$#" -ne 1 ]; then
   # Below set will reshuffle parameters.
   # example arg1=" --one=1 --two=2" will result in:
   # $1 = --one=1
   # $2 = --two=2
   #
   # The eval is needed here to preserve whitespace in the arguments
-  eval set -- $1
-else
-  # Parse the arguments
-  declare param value
-
-  # We don't need all the options here, just the log/debug options
-  while [[ $# -gt 0 && "$1" != "" ]]; do
-      param=`echo $1 | awk -F= '{print $1}'`
-      value=`echo $1 | awk -F= '{print $2}'`
-
-      # Assume that all options start with a '-'
-      # otherwise treat as a positional parameter
-      if [[ ! $param =~ ^- ]]; then
-        continue
-      fi
-      case $param in
-        -h | --help)
-          usage
-          exit 0
-          ;;
-        --debug)
-          DEBUG=1
-          ;;
-        -v | --version)
-          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
-          exit 0
-          ;;
-        --log)
-          if [[ -n $value ]]; then
-            ERR_FILE=$value
-          fi
-          ;;
-      esac
-      shift
-  done
-
-  echo "Old config detected...trying to upgrade More than one parameter"
-
-  if [[ $DEBUG -eq 1 ]]; then
-    # For now
-    if [[ -z $ERR_FILE && -t 1 ]]; then
-      ERR_FILE=/dev/stderr
-    fi
-  fi
-
-  upgrade_scheduler
+  #eval set -- $1
+  echo "Wrong number of parameters. We need all arguments grouped in a single one double quoted in ARG1"
   exit 1
+#else
+#  # Parse the arguments
+#  declare param value
+#
+#  # We don't need all the options here, just the log/debug options
+#  while [[ $# -gt 0 && "$1" != "" ]]; do
+#      param=`echo $1 | awk -F= '{print $1}'`
+#      value=`echo $1 | awk -F= '{print $2}'`
+#
+#      # Assume that all options start with a '-'
+#      # otherwise treat as a positional parameter
+#      if [[ ! $param =~ ^- ]]; then
+#        shift
+#        continue
+#      fi
+#      case $param in
+#        -h | --help)
+#          usage
+#          exit 0
+#          ;;
+#        --debug)
+#          DEBUG=1
+#          ;;
+#        -v | --version)
+#          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
+#          exit 0
+#          ;;
+#        --log)
+#          if [[ -n $value ]]; then
+#            ERR_FILE=$value
+#          fi
+#          ;;
+#      esac
+#      shift
+#  done
+
+  #echo "Old config detected...trying to upgrade More than one parameter"
+  #
+  #if [[ $DEBUG -eq 1 ]]; then
+  #  # For now
+  #  if [[ -z $ERR_FILE && -t 1 ]]; then
+  #    ERR_FILE=/dev/stderr
+  #  fi
+  #fi
+
+  #upgrade_scheduler
+  #exit 1
 fi
 
 trap cleanup_handler EXIT
 
-parse_args "$@"
+#Let us measure the time we take PLEASE!!
+start_time=$( date +%s.%N )
+
+######just load the config file before anything else
+# First reansform the quoted args removing double quote
+declare my_args=$(sed -e 's/^"//' -e 's/"$//' <<<"$@")
+
+#parse only config file and apply it
+for arg in $my_args
+  do
+    #echo $arg
+    case "$arg" in
+      -- ) shift; break;;
+      --config-file=* )
+        CONFIG_FILE=$(echo "$arg"|awk -F '=' '{print $2}')
+        #echo $CONFIG_FILE
+        break
+        ;;
+      -c* )
+          echo "ERROR config file must be defined by long option --config-file"
+          exit 1
+        ;;
+      --log=* )
+        ERR_FILE=$(echo "$arg"|awk -F '=' '{print $2}')
+        # Test if stderr is open to a terminal
+        # We cannot use stdout as the log output, since it is used
+        # to return values.
+        if [[ $ERR_FILE == "/dev/stderr" ]]; then
+           RED=$(tput setaf 1)
+           NRED=$(tput sgr0)
+        else
+           RED=""
+           NRED=""
+        fi
+      ;;  
+    esac
+done
+
+readonly CONFIG_FILE
+if [ ! -e "$CONFIG_FILE" ]; then
+    error "" "Could not locate the configuration file: $CONFIG_FILE"
+    exit 1
+else
+    check_permission -r $LINENO "$CONFIG_FILE"
+    debug $LINENO "Loading $CONFIG_FILE"
+    source "$CONFIG_FILE"
+fi
+
+#parameters from command line will overwrite the CONFIGs from the file 
+parse_args2 $my_args
+
+#validate all arguments
+arguments_validation
+
+#run script
 main
 
+elapsed_time=$( date +%s.%N --date="$start_time seconds ago" )
+log "2" "" "###### Total execution time ######"
+log "2" "" "elapsed_time: $elapsed_time";
+
+
 exit 0
+
