@@ -13,7 +13,7 @@ Galera checker usage
 ```
 Usage: ${path##*/} "--config-file=/etc/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log --debug"
 
-Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=--priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
+Usage in ProxySQL scheduler: INSERT  INTO scheduler (id,active,interval_ms,filename,arg1) values (50,0,3000,"/opt/tools/proxysql-admin-tool/proxysql_galera_checker","--config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log");
 ```
 Record will looks like this:
 ```
@@ -21,7 +21,7 @@ id: 50
      active: 0
 interval_ms: 3000
    filename: /opt/tools/proxysql-admin-tool/proxysql_galera_checker
-       arg1: --config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=--priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
+       arg1: --config-file=/opt/tools/proxysql-admin-tool/proxysql-admin-sample.cnf --writer-is-reader=always --write-hg=200 --read-hg=201 --writer-count=1 --priority=10.0.0.22:3306,10.0.0.23:3306,10.0.0.33:3306 --mode=singlewrite --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log
        arg2: NULL
        arg3: NULL
        arg4: NULL
